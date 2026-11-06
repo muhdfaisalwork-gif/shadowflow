@@ -24,6 +24,7 @@ import { d1Api } from '@/lib/api';
 import { useToast } from '@/hooks/use-toast';
 import RunHistory from '@/components/dashboard/RunHistory';
 import { DemoBanner } from '@/components/demo/DemoBanner';
+import EmailVerificationBanner from '@/components/auth/EmailVerificationBanner';
 
 interface WorkflowFromDB {
   id: string;
@@ -179,6 +180,7 @@ const Dashboard: FC = () => {
       </header>
 
       <main className="container mx-auto px-4 py-8">
+        {!demo && <EmailVerificationBanner />}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
           <div>
             <h1 className="text-3xl font-bold">My Workflows</h1>

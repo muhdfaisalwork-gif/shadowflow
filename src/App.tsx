@@ -13,6 +13,7 @@ import Index from "./pages/Index";
 import Pricing from "./pages/Pricing";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
+import VerifyEmail from "./pages/VerifyEmail";
 import Dashboard from "./pages/Dashboard";
 import WorkflowEditor from "./pages/WorkflowEditor";
 import SharedWorkflow from "./pages/SharedWorkflow";
@@ -55,6 +56,7 @@ const App = () => (
                 <Route path="/pricing" element={<Pricing />} />
                 <Route path="/login" element={<Login />} />
                 <Route path="/signup" element={<Signup />} />
+                <Route path="/verify-email" element={<VerifyEmail />} />
                 <Route path="/reset-password" element={<ResetPassword />} />
                 <Route
                   path="/dashboard"

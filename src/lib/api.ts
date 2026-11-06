@@ -7,6 +7,8 @@ export interface User {
   id: string;
   email: string;
   display_name?: string;
+  /** False until the user clicks the emailed link. Undefined for sessions that never reported it. */
+  email_verified?: boolean;
   user_metadata?: { display_name?: string; full_name?: string };
 }
 
@@ -206,6 +208,17 @@ export const d1Api = {
       clearAuthToken();
       return null;
     }
+  },
+
+  async verifyEmail(token: string): Promise<{ success: boolean; message?: string }> {
+    return apiFetch('/api/auth/verify-email', {
+      method: 'POST',
+      body: JSON.stringify({ token }),
+    });
+  },
+
+  async resendVerificationEmail(): Promise<{ success: boolean; alreadyVerified?: boolean; message?: string }> {
+    return apiFetch('/api/auth/resend-verification', { method: 'POST' });
   },
 
   async logout(): Promise<void> {

@@ -52,11 +52,11 @@ const Signup: FC = () => {
       return;
     }
 
-    if (password.length < 6) {
+    if (password.length < 8) {
       toast({
         variant: 'destructive',
         title: 'Password too short',
-        description: 'Password must be at least 6 characters.',
+        description: 'Password must be at least 8 characters.',
       });
       return;
     }
@@ -74,7 +74,7 @@ const Signup: FC = () => {
     } else {
       toast({
         title: 'Account created!',
-        description: 'Welcome to Shadow Flow. You can now start building workflows.',
+        description: 'We sent a confirmation link to your email. You can start building workflows now, and AI features unlock once you confirm.',
       });
       navigate('/dashboard');
     }
@@ -160,7 +160,7 @@ const Signup: FC = () => {
                     onChange={(e) => setPassword(e.target.value)}
                     className="pl-10"
                     required
-                    minLength={6}
+                    minLength={8}
                   />
                 </div>
               </div>
@@ -177,7 +177,7 @@ const Signup: FC = () => {
                     onChange={(e) => setConfirmPassword(e.target.value)}
                     className="pl-10"
                     required
-                    minLength={6}
+                    minLength={8}
                   />
                 </div>
               </div>

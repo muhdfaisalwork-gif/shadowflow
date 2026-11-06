@@ -406,14 +406,141 @@ async function send2FAEmail(env: Env, toEmail: string, code: string): Promise<bo
   }
 }
 
-async function getEffectiveUserId(request: Request, env: Env): Promise<{ userId: string; isAuthenticated: boolean }> {
-  const user = await getAuthUser(request, env);
-  if (user) {
-    return { userId: user.id, isAuthenticated: true };
+// ----------------------------------------------------------------------------
+// Email verification
+// Tokens are 256-bit random values. Only the SHA-256 hash is stored, so a read of
+// the database cannot be turned into working verification links.
+// ----------------------------------------------------------------------------
+
+const EMAIL_VERIFY_TTL_MS = 24 * 60 * 60 * 1000;
+const EMAIL_VERIFY_RESEND_COOLDOWN_MS = 60 * 1000;
+const EMAIL_VERIFY_MAX_PER_DAY = 5;
+const APP_ORIGIN = 'https://shadowflow.work';
+
+async function sha256Hex(text: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+  return bytesToHex(new Uint8Array(digest));
+}
+
+/**
+ * Accounts created before verification existed were backfilled as verified, so a
+ * missing row or a lookup error counts as verified. This keeps a database hiccup
+ * from locking real users out.
+ */
+async function isEmailVerified(userId: string, env: Env): Promise<boolean> {
+  try {
+    const row = (await env.DB.prepare('SELECT email_verified FROM users WHERE id = ?').bind(userId).first()) as {
+      email_verified: number;
+    } | null;
+    return row ? row.email_verified !== 0 : true;
+  } catch {
+    return true;
   }
+}
+
+async function sendVerificationEmail(env: Env, toEmail: string, token: string): Promise<boolean> {
+  if (!env.RESEND_API_KEY) {
+    console.error('[Verify] RESEND_API_KEY is not configured, verification email not sent');
+    return false;
+  }
+  const link = `${APP_ORIGIN}/verify-email?token=${token}`;
+  const html = `<!DOCTYPE html>
+<html>
+<body style="margin:0;padding:24px;background:#0b0f19;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:#e2e8f0;">
+  <div style="max-width:480px;margin:0 auto;background:#111827;border:1px solid #1f2937;border-radius:12px;padding:32px;">
+    <div style="font-size:18px;font-weight:700;color:#38bdf8;margin-bottom:16px;">Shadow Flow</div>
+    <div style="font-size:20px;font-weight:600;margin-bottom:12px;">Confirm your email address</div>
+    <p style="font-size:14px;line-height:1.6;color:#94a3b8;">Click the button below to confirm this address and finish setting up your Shadow Flow account. The link works once and expires in 24 hours.</p>
+    <p style="margin:24px 0;"><a href="${link}" style="background:#2563eb;color:#ffffff;text-decoration:none;padding:12px 22px;border-radius:8px;font-weight:600;font-size:14px;display:inline-block;">Confirm email</a></p>
+    <p style="font-size:12px;color:#64748b;word-break:break-all;">If the button does not work, paste this link into your browser:<br>${link}</p>
+    <p style="font-size:12px;color:#64748b;margin-top:24px;">If you did not create a Shadow Flow account, you can ignore this email and nothing will happen.</p>
+  </div>
+</body>
+</html>`;
+
+  try {
+    const res = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${env.RESEND_API_KEY}`,
+      },
+      body: JSON.stringify({
+        from: 'Shadow Flow <support@shadowflow.work>',
+        to: toEmail,
+        subject: 'Confirm your Shadow Flow email address',
+        html,
+        text: `Confirm your Shadow Flow email address by opening this link (valid for 24 hours, single use):\n${link}\n\nIf you did not create an account, ignore this email.`,
+      }),
+    });
+    return res.ok;
+  } catch (err) {
+    console.error('[Verify] Failed to dispatch verification email via Resend:', err);
+    return false;
+  }
+}
+
+/** Retires any open tokens for the user, stores a fresh hashed one, and emails the link. */
+async function issueVerificationEmail(env: Env, userId: string, email: string): Promise<boolean> {
+  const rawBytes = crypto.getRandomValues(new Uint8Array(32));
+  const token = bytesToHex(rawBytes);
+  const tokenHash = await sha256Hex(token);
+  const now = new Date();
+  const nowIso = now.toISOString();
+  const expiresAt = new Date(now.getTime() + EMAIL_VERIFY_TTL_MS).toISOString();
+
+  await env.DB.batch([
+    env.DB.prepare('UPDATE email_verifications SET used_at = ? WHERE user_id = ? AND used_at IS NULL').bind(nowIso, userId),
+    env.DB.prepare(
+      'INSERT INTO email_verifications (id, user_id, email, token_hash, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?)'
+    ).bind(crypto.randomUUID(), userId, email, tokenHash, expiresAt, nowIso),
+  ]);
+
+  return sendVerificationEmail(env, email, token);
+}
+
+/** Returns the signed-in user, or a ready-made 401/403 response when they may not proceed. */
+async function requireVerifiedUser(
+  request: Request,
+  env: Env
+): Promise<{ user: UserPayload; response?: undefined } | { user?: undefined; response: Response }> {
+  const user = await getAuthUser(request, env);
+  if (!user) {
+    return { response: jsonResponse({ error: 'Unauthorized' }, 401, request) };
+  }
+  if (!(await isEmailVerified(user.id, env))) {
+    return {
+      response: jsonResponse(
+        {
+          error: 'Please confirm your email address to use this feature. Check your inbox for the verification link.',
+          code: 'EMAIL_NOT_VERIFIED',
+        },
+        403,
+        request
+      ),
+    };
+  }
+  return { user };
+}
+
+async function getEffectiveUserId(
+  request: Request,
+  env: Env
+): Promise<{ userId: string; isAuthenticated: boolean; emailVerified: boolean }> {
   // Rely strictly on Cloudflare edge-injected header to prevent IP spoofing
   const ip = request.headers.get('cf-connecting-ip') || 'guest';
-  return { userId: `ip_${ip.replace(/[^a-zA-Z0-9_.-]/g, '_')}`, isAuthenticated: false };
+  const ipUserId = `ip_${ip.replace(/[^a-zA-Z0-9_.-]/g, '_')}`;
+
+  const user = await getAuthUser(request, env);
+  if (user) {
+    if (await isEmailVerified(user.id, env)) {
+      return { userId: user.id, isAuthenticated: true, emailVerified: true };
+    }
+    // Unverified accounts share the per-IP free quota, so throwaway signups
+    // cannot multiply the daily AI allowance.
+    return { userId: ipUserId, isAuthenticated: true, emailVerified: false };
+  }
+  return { userId: ipUserId, isAuthenticated: false, emailVerified: false };
 }
 
 async function getUserPlan(userId: string, env: Env): Promise<{ plan: string; limit: number }> {
@@ -568,8 +695,8 @@ export default {
         const password = body.password?.trim();
         const displayName = body.displayName?.trim() || email?.split('@')[0] || 'User';
 
-        if (!email || !password || password.length < 6) {
-          return jsonResponse({ error: 'Valid email and password (minimum 6 characters) required' }, 400, request);
+        if (!email || !password || password.length < 8) {
+          return jsonResponse({ error: 'Valid email and password (minimum 8 characters) required' }, 400, request);
         }
 
         const existing = await env.DB.prepare('SELECT id FROM users WHERE email = ?').bind(email).first();
@@ -584,7 +711,7 @@ export default {
         const now = new Date().toISOString();
 
         await env.DB.prepare(
-          'INSERT INTO users (id, email, password_hash, password_salt, display_name, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+          'INSERT INTO users (id, email, password_hash, password_salt, display_name, created_at, updated_at, email_verified) VALUES (?, ?, ?, ?, ?, ?, ?, 0)'
         )
           .bind(userId, email, hash, salt, displayName, now, now)
           .run();
@@ -595,7 +722,19 @@ export default {
         }
         const token = await createJWT(user as unknown as Record<string, unknown>, env.JWT_SECRET);
 
-        return jsonResponse({ success: true, user, token }, 201, request);
+        // A failed email must not fail the signup. The user can request a new link from the dashboard.
+        let verificationSent = false;
+        try {
+          verificationSent = await issueVerificationEmail(env, userId, email);
+        } catch (mailErr) {
+          console.error('[Verify] Could not issue verification email at signup:', mailErr);
+        }
+
+        return jsonResponse(
+          { success: true, user: { ...user, email_verified: false }, token, verificationEmailSent: verificationSent },
+          201,
+          request
+        );
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);
         return jsonResponse({ error: 'Signup failed', details: message }, 500, request);
@@ -930,8 +1069,10 @@ export default {
 
     // POST /api/auth/tfa/setup-email - Dispatch email OTP for 2FA setup
     if (url.pathname === '/api/auth/tfa/setup-email' && request.method === 'POST') {
-      const user = await getAuthUser(request, env);
-      if (!user) return jsonResponse({ error: 'Unauthorized' }, 401, request);
+      // Email-based 2FA only means something if the address belongs to the account holder.
+      const gate = await requireVerifiedUser(request, env);
+      if (gate.response) return gate.response;
+      const user = gate.user;
 
       const otp = generateNumericOTP(6);
       const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
@@ -1067,7 +1208,100 @@ export default {
       if (!user) {
         return jsonResponse({ error: 'Unauthorized' }, 401, request);
       }
-      return jsonResponse({ user }, 200, request);
+      const emailVerified = await isEmailVerified(user.id, env);
+      return jsonResponse({ user: { ...user, email_verified: emailVerified } }, 200, request);
+    }
+
+    // POST /api/auth/verify-email - consume a single-use token from the emailed link.
+    // The link opens a page in the app that sends this POST, so mail scanners that
+    // prefetch links with GET cannot burn the token.
+    if (url.pathname === '/api/auth/verify-email' && request.method === 'POST') {
+      try {
+        const body = (await request.json().catch(() => ({}))) as { token?: string };
+        const token = String(body.token || '').trim().toLowerCase();
+        const invalid = () =>
+          jsonResponse({ error: 'This verification link is invalid or has expired. Request a new one from your dashboard.' }, 400, request);
+
+        if (!/^[a-f0-9]{64}$/.test(token)) return invalid();
+
+        const tokenHash = await sha256Hex(token);
+        const row = (await env.DB.prepare(
+          'SELECT id, user_id, email, expires_at, used_at FROM email_verifications WHERE token_hash = ?'
+        )
+          .bind(tokenHash)
+          .first()) as { id: string; user_id: string; email: string; expires_at: string; used_at: string | null } | null;
+
+        const nowIso = new Date().toISOString();
+        if (!row || row.used_at || row.expires_at < nowIso) return invalid();
+
+        // The token only counts if the account still has the address it was sent to.
+        const owner = (await env.DB.prepare('SELECT email FROM users WHERE id = ?').bind(row.user_id).first()) as {
+          email: string;
+        } | null;
+        if (!owner || owner.email !== row.email) return invalid();
+
+        await env.DB.batch([
+          env.DB.prepare('UPDATE users SET email_verified = 1, updated_at = ? WHERE id = ?').bind(nowIso, row.user_id),
+          env.DB.prepare('UPDATE email_verifications SET used_at = ? WHERE id = ?').bind(nowIso, row.id),
+        ]);
+
+        return jsonResponse({ success: true, message: 'Email confirmed' }, 200, request);
+      } catch (err: unknown) {
+        console.error('[Verify] verify-email failed:', err);
+        return jsonResponse({ error: 'Could not verify email right now. Please try again.' }, 500, request);
+      }
+    }
+
+    // POST /api/auth/resend-verification - send a fresh link to the signed-in user
+    if (url.pathname === '/api/auth/resend-verification' && request.method === 'POST') {
+      const user = await getAuthUser(request, env);
+      if (!user) return jsonResponse({ error: 'Unauthorized' }, 401, request);
+
+      if (await isEmailVerified(user.id, env)) {
+        return jsonResponse({ success: true, alreadyVerified: true }, 200, request);
+      }
+
+      try {
+        const last = (await env.DB.prepare(
+          'SELECT created_at FROM email_verifications WHERE user_id = ? ORDER BY created_at DESC LIMIT 1'
+        )
+          .bind(user.id)
+          .first()) as { created_at: string } | null;
+
+        if (last) {
+          const waitMs = EMAIL_VERIFY_RESEND_COOLDOWN_MS - (Date.now() - new Date(last.created_at).getTime());
+          if (waitMs > 0) {
+            return jsonResponse(
+              { error: `Please wait ${Math.ceil(waitMs / 1000)} seconds before requesting another email.`, code: 'RESEND_COOLDOWN' },
+              429,
+              request
+            );
+          }
+        }
+
+        const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+        const countRow = (await env.DB.prepare(
+          'SELECT COUNT(*) AS n FROM email_verifications WHERE user_id = ? AND created_at > ?'
+        )
+          .bind(user.id, since)
+          .first()) as { n: number } | null;
+        if ((countRow?.n || 0) >= EMAIL_VERIFY_MAX_PER_DAY) {
+          return jsonResponse(
+            { error: 'Daily limit for verification emails reached. Try again tomorrow.', code: 'RESEND_LIMIT' },
+            429,
+            request
+          );
+        }
+
+        const sent = await issueVerificationEmail(env, user.id, user.email);
+        if (!sent) {
+          return jsonResponse({ error: 'We could not send the email right now. Please try again shortly.' }, 502, request);
+        }
+        return jsonResponse({ success: true, message: 'Verification email sent' }, 200, request);
+      } catch (err: unknown) {
+        console.error('[Verify] resend-verification failed:', err);
+        return jsonResponse({ error: 'Could not send verification email right now.' }, 500, request);
+      }
     }
 
     // POST /api/auth/logout
@@ -1333,10 +1567,9 @@ export default {
 
     // POST /api/credentials
     if (url.pathname === '/api/credentials' && request.method === 'POST') {
-      const user = await getAuthUser(request, env);
-      if (!user) {
-        return jsonResponse({ error: 'Unauthorized' }, 401, request);
-      }
+      const gate = await requireVerifiedUser(request, env);
+      if (gate.response) return gate.response;
+      const user = gate.user;
 
       try {
         const body = (await request.json()) as { provider?: string; name?: string; data?: unknown };
@@ -1764,9 +1997,16 @@ export default {
 
     // POST /api/seo/generate - Autonomous Edge AI Blog Article Writer (Quota & Auth Protected)
     if (url.pathname === '/api/seo/generate' && request.method === 'POST') {
-      const { userId, isAuthenticated } = await getEffectiveUserId(request, env);
+      const { userId, isAuthenticated, emailVerified } = await getEffectiveUserId(request, env);
       if (!isAuthenticated) {
         return jsonResponse({ error: 'Unauthorized: Please log in to generate AI SEO articles' }, 401, request);
+      }
+      if (!emailVerified) {
+        return jsonResponse(
+          { error: 'Please confirm your email address before generating articles.', code: 'EMAIL_NOT_VERIFIED' },
+          403,
+          request
+        );
       }
 
       const quota = await checkAndIncrementUsage(userId, env);
@@ -1883,6 +2123,13 @@ Write the full article now in Markdown.`;
       const isInternalBot = Boolean(env.JWT_SECRET && request.headers.get('x-internal-secret') === env.JWT_SECRET);
       if (!user && !isInternalBot) {
         return jsonResponse({ error: 'Unauthorized: Authentication required to send emails' }, 401, request);
+      }
+      if (user && !isInternalBot && !(await isEmailVerified(user.id, env))) {
+        return jsonResponse(
+          { error: 'Please confirm your email address before sending email from Shadow Flow.', code: 'EMAIL_NOT_VERIFIED' },
+          403,
+          request
+        );
       }
 
       try {

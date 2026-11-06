@@ -8,10 +8,25 @@ CREATE TABLE IF NOT EXISTS users (
   password_salt TEXT NOT NULL,
   display_name TEXT,
   created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL
+  updated_at TEXT NOT NULL,
+  -- Default 1 keeps accounts that predate verification working. Signup inserts 0.
+  email_verified INTEGER NOT NULL DEFAULT 1
 );
 
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+
+CREATE TABLE IF NOT EXISTS email_verifications (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  email TEXT NOT NULL,
+  token_hash TEXT NOT NULL UNIQUE,
+  expires_at TEXT NOT NULL,
+  used_at TEXT,
+  created_at TEXT NOT NULL,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_email_verifications_user ON email_verifications(user_id, created_at DESC);
 
 CREATE TABLE IF NOT EXISTS workflows (
   id TEXT PRIMARY KEY,
