@@ -135,4 +135,9 @@
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
   </url>
+  <url>
+    <loc>https://shadowflow.work/blog/building-firecrawl-web-scraping-pipelines-webhooks</loc>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+  </url>
 </urlset>
