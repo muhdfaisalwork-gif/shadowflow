@@ -13,6 +13,8 @@
 
 ## Technical Engineering Blog
 
+- [LangGraph vs Visual DAGs: Comparing State Graph Complexity and Canvas Maintainability](https://shadowflow.work/blog/langgraph-vs-visual-dag-comparing-state-graphs): A technical evaluation of Python-first state machines versus declarative visual canvases for multi-agent workflows and human-in-the-loop approvals.
+- [Migrating from Zapier to Shadow Flow: Cutting Enterprise Automation Bills by 85%](https://shadowflow.work/blog/migrating-from-zapier-to-shadow-flow-enterprise-cost-guide): How visual DAG orchestration and serverless execution eliminate tiered task pricing and per-action billing for high-volume enterprise pipelines.
 - [Self-Hosting AI Workflows for Total Data Privacy: A Playbook for HIPAA and GDPR Compliance](https://shadowflow.work/blog/self-hosting-ai-automation-privacy-hipaa-gdpr-compliance): How healthcare and finance teams deploy private, air-gapped automation nodes with client-side execution to guarantee customer data never leaves secure infrastructure.
 - [Code vs Canvas: Comparing LangChain and Visual DAG Builders for Enterprise Multi-Agent Systems](https://shadowflow.work/blog/langchain-vs-visual-dag-workflows-code-vs-canvas): An objective performance and maintenance comparison between code-first frameworks and visual node canvases for team-wide automation handoff.
 - [Building an Autonomous B2B Lead Enrichment Pipeline with Webhooks, Clay, and Resend](https://shadowflow.work/blog/building-autonomous-b2b-lead-generation-crm-pipeline): Complete architecture for automating inbound webhook capture, domain scraping, contact enrichment, and transactional email routing with sub-second execution.

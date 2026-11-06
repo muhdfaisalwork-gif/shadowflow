@@ -385,7 +385,7 @@ Setting up ${topic} does not require rebuilding your backend stack. With Shadow 
       });
     } catch (err) {
       console.warn("D1 edge sync deferred, saved to local cache:", err);
-      toast.success("Article successfully published to Live Blog!", {
+      toast.info("Article saved to local library. Sign in to sync directly to the live Cloudflare edge database.", {
         action: {
           label: "View Post",
           onClick: () => navigate(`/blog/${newPost.slug}`),

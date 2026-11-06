@@ -25,6 +25,8 @@ jobs:
           python-version: "3.11"
 
       - name: Run Autonomous 80/20 SEO Cycle
+        env:
+          INTERNAL_BOT_SECRET: ${{ secrets.JWT_SECRET || secrets.INTERNAL_BOT_SECRET }}
         run: |
           python scripts/seo_agent.py run --mode auto
 

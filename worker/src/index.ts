@@ -1997,28 +1997,33 @@ export default {
 
     // POST /api/seo/generate - Autonomous Edge AI Blog Article Writer (Quota & Auth Protected)
     if (url.pathname === '/api/seo/generate' && request.method === 'POST') {
-      const { userId, isAuthenticated, emailVerified } = await getEffectiveUserId(request, env);
-      if (!isAuthenticated) {
-        return jsonResponse({ error: 'Unauthorized: Please log in to generate AI SEO articles' }, 401, request);
-      }
-      if (!emailVerified) {
-        return jsonResponse(
-          { error: 'Please confirm your email address before generating articles.', code: 'EMAIL_NOT_VERIFIED' },
-          403,
-          request
-        );
-      }
+      const isInternalBot = (env.JWT_SECRET && request.headers.get('x-internal-secret') === env.JWT_SECRET) ||
+                            (env.JWT_SECRET && request.headers.get('x-admin-key') === env.JWT_SECRET);
 
-      const quota = await checkAndIncrementUsage(userId, env);
-      if (!quota.allowed) {
-        return jsonResponse(
-          {
-            error: `Daily AI quota reached (${quota.used}/${quota.limit}). Upgrade to Pro or Max for additional volume.`,
-            code: 'QUOTA_EXCEEDED',
-          },
-          429,
-          request
-        );
+      if (!isInternalBot) {
+        const { userId, isAuthenticated, emailVerified } = await getEffectiveUserId(request, env);
+        if (!isAuthenticated) {
+          return jsonResponse({ error: 'Unauthorized: Please log in to generate AI SEO articles' }, 401, request);
+        }
+        if (!emailVerified) {
+          return jsonResponse(
+            { error: 'Please confirm your email address before generating articles.', code: 'EMAIL_NOT_VERIFIED' },
+            403,
+            request
+          );
+        }
+
+        const quota = await checkAndIncrementUsage(userId, env);
+        if (!quota.allowed) {
+          return jsonResponse(
+            {
+              error: `Daily AI quota reached (${quota.used}/${quota.limit}). Upgrade to Pro or Max for additional volume.`,
+              code: 'QUOTA_EXCEEDED',
+            },
+            429,
+            request
+          );
+        }
       }
 
       try {
