@@ -13,6 +13,7 @@
 
 ## Technical Engineering Blog
 
+- [Securing Inbound Webhooks: Implementing HMAC Signatures, Replay Defense, and Rate Limiting](https://shadowflow.work/blog/securing-inbound-webhooks-hmac-signatures-replay-defense): A production guide to validating webhook payloads using cryptographic signatures, timestamp verification, and sliding window rate limiters.
 - [Deploying Air-Gapped AI Workflows with Ollama and Llama 3.3 for Zero Data Leakage](https://shadowflow.work/blog/deploying-air-gapped-ai-workflows-ollama-llama3): Setting up private, local inference pipelines that process sensitive documents without outbound network calls or third-party telemetry.
 - [Running WebAssembly Inside Visual DAG Nodes: Sub-5ms Custom Compute on Cloudflare Edge](https://shadowflow.work/blog/running-webassembly-inside-visual-dag-nodes-cloudflare): How compiling Rust and C++ logic to WebAssembly enables ultra-fast deterministic transformations within visual automation pipelines without cold starts.
 - [Web Scraping at Scale: Building Firecrawl Pipelines with Webhook Triggers and AI Synthesis](https://shadowflow.work/blog/building-firecrawl-web-scraping-pipelines-webhooks): How to extract structured Markdown and clean DOM content from JavaScript-heavy web pages using asynchronous worker queues and edge execution.
