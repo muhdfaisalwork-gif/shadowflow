@@ -26,6 +26,7 @@
 
 ## Technical Engineering Blog
 
+- [Optimizing Cloudflare D1 SQLite for High-Throughput Automation Queues and Audit Logs](https://shadowflow.work/blog/optimizing-cloudflare-d1-sqlite-high-throughput-workflows): Best practices for batching database transactions, indexing foreign keys, and minimizing read replica lag in serverless workflow backends.
 - [Under the Hood of Prompt-to-Flow: How Deterministic Compilers Turn Natural Language into DAGs](https://shadowflow.work/blog/prompt-to-flow-copilot-architecture-deterministic-compiler): Architectural teardown of topological graph synthesis, schema validation, and Kahn cycle elimination in visual automation engines.
 - [Securing Inbound Webhooks: Implementing HMAC Signatures, Replay Defense, and Rate Limiting](https://shadowflow.work/blog/securing-inbound-webhooks-hmac-signatures-replay-defense): A production guide to validating webhook payloads using cryptographic signatures, timestamp verification, and sliding window rate limiters.
 - [Deploying Air-Gapped AI Workflows with Ollama and Llama 3.3 for Zero Data Leakage](https://shadowflow.work/blog/deploying-air-gapped-ai-workflows-ollama-llama3): Setting up private, local inference pipelines that process sensitive documents without outbound network calls or third-party telemetry.
