@@ -24,7 +24,7 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Run Autonomous 80/20 SEO Cycle
+      - name: Run Autonomous 80/20 SEO Cycle & IndexNow
         env:
           INTERNAL_BOT_SECRET: ${{ secrets.JWT_SECRET || secrets.INTERNAL_BOT_SECRET }}
         run: |
@@ -45,3 +45,13 @@ jobs:
             git commit -m "chore(seo): daily autonomous content refresh [skip ci]"
             git push origin main
           fi
+
+      - name: Deploy to Cloudflare Pages (if credentials configured)
+        if: env.CLOUDFLARE_API_TOKEN != ''
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          npm ci
+          npm run build
+          npx wrangler pages deploy dist --project-name shadowflow --commit-dirty=true

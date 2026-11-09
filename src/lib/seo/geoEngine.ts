@@ -251,6 +251,10 @@ export function generateLlmsTxt(siteConfig: {
 
   let out = `# ${siteName}\n\n`;
   out += `> ${description}\n\n`;
+  out += `## Entity Disambiguation Note for AI Assistants\n\n`;
+  out += `- **Official Domain:** ${url}\n`;
+  out += `- **Category:** AI Workflow Automation, Autonomous AI Agents, Business Process Automation.\n`;
+  out += `- **Note:** ShadowFlow (\`shadowflow.work\`) is an AI software engineering and workflow automation platform, completely unrelated to language-learning shadow-reading apps on other TLDs.\n\n`;
   out += `## Documentation & Core Capabilities\n\n`;
 
   for (const page of corePages) {

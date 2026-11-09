@@ -480,6 +480,13 @@ export const INTERNAL_BACKLINK_TARGETS: InternalLinkTarget[] = [
   { phrase: 'local ollama', url: 'https://shadowflow.work/features#local-llm', label: 'Local Ollama Gemma 4' },
   { phrase: 'deepseek reasoner', url: 'https://shadowflow.work/blog/deepseek-reasoner-enterprise-ai-automation', label: 'DeepSeek Reasoner Guide' },
   { phrase: 'self-hosted ai workflows', url: 'https://shadowflow.work/blog/self-hosted-ai-workflows-vs-saas', label: 'Self-Hosted AI Workflows' },
+  { phrase: 'shadowflow vs zapier', url: 'https://shadowflow.work/compare/shadowflow-vs-zapier-vs-n8n', label: 'ShadowFlow vs Zapier vs n8n' },
+  { phrase: 'zapier vs n8n', url: 'https://shadowflow.work/compare/shadowflow-vs-zapier-vs-n8n', label: 'ShadowFlow vs Zapier vs n8n' },
+  { phrase: 'zapier alternative', url: 'https://shadowflow.work/compare/shadowflow-vs-zapier-vs-n8n', label: 'ShadowFlow vs Zapier' },
+  { phrase: 'autonomous social media', url: 'https://shadowflow.work/use-cases/autonomous-social-media-agents', label: 'Autonomous Social Media Agents' },
+  { phrase: 'social media agents', url: 'https://shadowflow.work/use-cases/autonomous-social-media-agents', label: 'Autonomous Social Media Agents' },
+  { phrase: 'sales and lead automation', url: 'https://shadowflow.work/use-cases/ai-sales-and-lead-automation', label: 'AI Sales & Lead Automation' },
+  { phrase: 'lead automation', url: 'https://shadowflow.work/use-cases/ai-sales-and-lead-automation', label: 'AI Sales & Lead Automation' },
 ];
 
 /**

@@ -26,6 +26,7 @@
 
 ## Technical Engineering Blog
 
+- [Under the Hood of Prompt-to-Flow: How Deterministic Compilers Turn Natural Language into DAGs](https://shadowflow.work/blog/prompt-to-flow-copilot-architecture-deterministic-compiler): Architectural teardown of topological graph synthesis, schema validation, and Kahn cycle elimination in visual automation engines.
 - [Securing Inbound Webhooks: Implementing HMAC Signatures, Replay Defense, and Rate Limiting](https://shadowflow.work/blog/securing-inbound-webhooks-hmac-signatures-replay-defense): A production guide to validating webhook payloads using cryptographic signatures, timestamp verification, and sliding window rate limiters.
 - [Deploying Air-Gapped AI Workflows with Ollama and Llama 3.3 for Zero Data Leakage](https://shadowflow.work/blog/deploying-air-gapped-ai-workflows-ollama-llama3): Setting up private, local inference pipelines that process sensitive documents without outbound network calls or third-party telemetry.
 - [Running WebAssembly Inside Visual DAG Nodes: Sub-5ms Custom Compute on Cloudflare Edge](https://shadowflow.work/blog/running-webassembly-inside-visual-dag-nodes-cloudflare): How compiling Rust and C++ logic to WebAssembly enables ultra-fast deterministic transformations within visual automation pipelines without cold starts.

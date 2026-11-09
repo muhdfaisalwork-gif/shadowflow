@@ -344,4 +344,21 @@ export const d1Api = {
       body: JSON.stringify(payload),
     });
   },
+
+  async pingIndexNow(urls?: string[]): Promise<{
+    success: boolean;
+    status?: number;
+    error?: string;
+    submittedUrls?: number;
+  }> {
+    return apiFetch<{
+      success: boolean;
+      status?: number;
+      error?: string;
+      submittedUrls?: number;
+    }>('/api/seo/indexnow', {
+      method: 'POST',
+      body: JSON.stringify({ urls }),
+    });
+  },
 };

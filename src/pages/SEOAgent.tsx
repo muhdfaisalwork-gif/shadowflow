@@ -110,6 +110,9 @@ export default function SEOAgent() {
       { title: "Visual DAG Canvas", path: "/features", summary: "Graph-based canvas with multi-model routing, conditional branches, and sub-20ms node execution." },
       { title: "Universal Integrations", path: "/integrations", summary: "Connects 50+ REST APIs, Model Context Protocol (MCP) servers, databases, and webhook listeners." },
       { title: "Documentation & Quickstart", path: "/docs", summary: "Self-host via Docker, npm, or cloud runtimes with zero telemetry." },
+      { title: "ShadowFlow vs Zapier vs Make vs n8n", path: "/compare/shadowflow-vs-zapier-vs-n8n", summary: "Architectural comparison evaluating agent autonomy, persistent browser automation, local LLM routing, and pricing." },
+      { title: "Autonomous Social Media Agents", path: "/use-cases/autonomous-social-media-agents", summary: "Automated content extraction, multi-model synthesis, 82-humanizer quality gate, and DOM-driven publishing." },
+      { title: "AI Sales & Lead Automation", path: "/use-cases/ai-sales-and-lead-automation", summary: "Multi-channel lead scraping, CRM enrichment, and automated outreach pipelines." },
       { title: "Interactive Canvas Demo", path: "/demo", summary: "Test live DAG execution in browser with instant topological layout." },
       { title: "API Reference", path: "/api-reference", summary: "Full OpenAPI specs for webhook triggers and workflow execution contracts." },
     ],
@@ -354,6 +357,26 @@ Setting up ${topic} does not require rebuilding your backend stack. With Shadow 
     }
   };
 
+  // State and Handler for IndexNow Ping
+  const [isPingingIndexNow, setIsPingingIndexNow] = useState(false);
+  const handlePingIndexNow = async () => {
+    setIsPingingIndexNow(true);
+    try {
+      const res = await d1Api.pingIndexNow();
+      if (res.success) {
+        toast.success(`IndexNow ping submitted (${res.submittedUrls || 15} URLs queued for Bing, ChatGPT & Perplexity)!`);
+      } else if (res.status === 429) {
+        toast.info("IndexNow rate-limited recent submission: search engines already received latest URLs.");
+      } else {
+        toast.error(`IndexNow ping returned status: ${res.status || 'unknown'}`);
+      }
+    } catch {
+      toast.error("Failed to ping IndexNow service.");
+    } finally {
+      setIsPingingIndexNow(false);
+    }
+  };
+
   // Publish Generated Article to Blog Store
   const handlePublishToBlog = async () => {
     if (!generatedMarkdown || !generatedMeta.title) {
@@ -377,7 +400,8 @@ Setting up ${topic} does not require rebuilding your backend stack. With Shadow 
 
     try {
       await d1Api.publishBlog(newPost);
-      toast.success("Article successfully published to Live Blog and Edge D1 Database!", {
+      d1Api.pingIndexNow([`https://shadowflow.work/blog/${newPost.slug}`]).catch(() => {});
+      toast.success("Article successfully published to Live Blog, Edge D1 Database, and submitted to IndexNow!", {
         action: {
           label: "View Post",
           onClick: () => navigate(`/blog/${newPost.slug}`),
@@ -517,6 +541,15 @@ Setting up ${topic} does not require rebuilding your backend stack. With Shadow 
                     <Zap className="w-3 h-3 text-cyan-400" />
                     Claude SEO: Active
                   </div>
+                  <button
+                    onClick={handlePingIndexNow}
+                    disabled={isPingingIndexNow}
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-card/80 border border-border hover:border-emerald-500/40 text-[11px] text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+                    title="Ping IndexNow API for instant Bing, Copilot & Perplexity crawling"
+                  >
+                    <RefreshCw className={`w-3 h-3 text-emerald-400 ${isPingingIndexNow ? "animate-spin" : ""}`} />
+                    {isPingingIndexNow ? "Pinging IndexNow..." : "Ping IndexNow"}
+                  </button>
                 </div>
                 <h1 className="text-3xl sm:text-4xl lg:text-5xl font-extrabold tracking-tight mb-3">
                   AI SEO Studio & Content Engine
