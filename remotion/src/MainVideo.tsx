@@ -26,6 +26,7 @@ const transition = (type: "fade" | "slide-left" | "slide-right" = "fade") => {
 export const MainVideo: React.FC = () => {
   return (
     <AbsoluteFill>
+      <Audio src={staticFile("audio/ambient.mp3")} volume={0.25} />
       <PersistentBackground />
       <TransitionSeries>
         <TransitionSeries.Sequence durationInFrames={120}>

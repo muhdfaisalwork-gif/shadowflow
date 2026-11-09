@@ -34,7 +34,7 @@ await renderMedia({
   codec: "h264",
   outputLocation: "/mnt/documents/flow2flow-demo.mp4",
   puppeteerInstance: browser,
-  muted: true,
+  muted: false,
   concurrency: 1,
 });
 
