@@ -1,0 +1,46 @@
+{
+  "title": "ShadowFlow Architecture & Demo Presentation",
+  "author": "ShadowFlow Core Team",
+  "resolution": {
+    "width": 1920,
+    "height": 1080
+  },
+  "fps": 30,
+  "slides": [
+    {
+      "slide_number": 1,
+      "title": "Welcome to ShadowFlow",
+      "image_path": "assets/slides/slide_01_hook.png",
+      "speaker_notes": "ShadowFlow is an autonomous AI workflow platform built for teams who need fast execution without vendor per-step fees.",
+      "pause_after_seconds": 1.0
+    },
+    {
+      "slide_number": 2,
+      "title": "The Operational Bottleneck",
+      "image_path": "assets/slides/slide_02_problem.png",
+      "speaker_notes": "Traditional automation tools force engineering teams to choose between brittle linear scripts or prohibitive per-task pricing tiers that penalize high volume.",
+      "pause_after_seconds": 1.0
+    },
+    {
+      "slide_number": 3,
+      "title": "Deterministic Visual DAG Engine",
+      "image_path": "assets/slides/slide_03_architecture.png",
+      "speaker_notes": "Our visual canvas pairs sub-millisecond node execution with Anthropic's Model Context Protocol, enabling local models and cloud APIs to collaborate in a single graph.",
+      "pause_after_seconds": 1.2
+    },
+    {
+      "slide_number": 4,
+      "title": "Production Benchmarks & Privacy",
+      "image_path": "assets/slides/slide_04_benchmarks.png",
+      "speaker_notes": "In production tests, self-hosted deployments reduce recurring inference expenditures by sixty-five percent while keeping sensitive payloads entirely within your private perimeter.",
+      "pause_after_seconds": 1.0
+    },
+    {
+      "slide_number": 5,
+      "title": "Deploy Today on ShadowFlow",
+      "image_path": "assets/slides/slide_05_cta.png",
+      "speaker_notes": "Inspect the open-source code on GitHub or launch your first sandbox workflow today at shadowflow dot work.",
+      "pause_after_seconds": 1.5
+    }
+  ]
+}
