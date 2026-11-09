@@ -627,6 +627,12 @@ INTERNAL_LINKS = [
     ("local ollama", f"{BASE_SITE_URL}/features#local-llm"),
     ("gemma 4", f"{BASE_SITE_URL}/features#local-llm"),
     ("deepseek reasoner", f"{BASE_SITE_URL}/blog/deepseek-reasoner-enterprise-ai-automation"),
+    ("shadowflow vs zapier", f"{BASE_SITE_URL}/compare/shadowflow-vs-zapier-vs-n8n"),
+    ("zapier vs n8n", f"{BASE_SITE_URL}/compare/shadowflow-vs-zapier-vs-n8n"),
+    ("autonomous social media agents", f"{BASE_SITE_URL}/use-cases/autonomous-social-media-agents"),
+    ("browser automation", f"{BASE_SITE_URL}/use-cases/autonomous-social-media-agents"),
+    ("ai sales automation", f"{BASE_SITE_URL}/use-cases/ai-sales-and-lead-automation"),
+    ("lead automation", f"{BASE_SITE_URL}/use-cases/ai-sales-and-lead-automation"),
 ]
 
 # -----------------------------------------------------------------------------
@@ -1036,6 +1042,17 @@ def run_autonomous_cycle() -> Dict[str, Any]:
     # 4. Sync sitemap.xml and llms.txt
     update_sitemap_xml(existing_posts)
     update_llms_txt(existing_posts)
+
+    # 5. Ping IndexNow (Bing, ChatGPT Search, Perplexity)
+    try:
+        scripts_dir = os.path.dirname(os.path.abspath(__file__))
+        if scripts_dir not in sys.path:
+            sys.path.insert(0, scripts_dir)
+        from indexnow_ping import ping_indexnow
+        recent_urls = [f"{BASE_SITE_URL}/blog/{p['slug']}" for p in existing_posts[:5]]
+        ping_indexnow(recent_urls)
+    except Exception as e:
+        print(f"[SEO Agent] IndexNow auto-ping note: {e}")
 
     return {
         "newArticle": unwritten_topic["slug"] if new_article_created else None,

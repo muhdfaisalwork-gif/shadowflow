@@ -39,6 +39,9 @@ import Privacy from "./pages/Privacy";
 import Terms from "./pages/Terms";
 import CookiePolicy from "./pages/CookiePolicy";
 import License from "./pages/License";
+import CompareZapierN8n from "./pages/CompareZapierN8n";
+import UseCaseSocialMediaAgents from "./pages/UseCaseSocialMediaAgents";
+import UseCaseSalesLeadAutomation from "./pages/UseCaseSalesLeadAutomation";
 
 const queryClient = new QueryClient();
 
@@ -152,6 +155,12 @@ const App = () => (
                 <Route path="/terms" element={<Terms />} />
                 <Route path="/cookies" element={<CookiePolicy />} />
                 <Route path="/license" element={<License />} />
+                {/* Programmatic Comparison & Use-Case Hubs */}
+                <Route path="/compare" element={<CompareZapierN8n />} />
+                <Route path="/compare/shadowflow-vs-zapier-vs-n8n" element={<CompareZapierN8n />} />
+                <Route path="/use-cases" element={<UseCaseSalesLeadAutomation />} />
+                <Route path="/use-cases/autonomous-social-media-agents" element={<UseCaseSocialMediaAgents />} />
+                <Route path="/use-cases/ai-sales-and-lead-automation" element={<UseCaseSalesLeadAutomation />} />
                 {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
                 <Route path="*" element={<NotFound />} />
               </Routes>

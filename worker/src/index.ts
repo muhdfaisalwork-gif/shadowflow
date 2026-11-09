@@ -2122,6 +2122,47 @@ Write the full article now in Markdown.`;
       }
     }
 
+    // POST /api/seo/indexnow - Dispatch IndexNow URLs to Bing / ChatGPT Search / Perplexity
+    if (url.pathname === '/api/seo/indexnow' && request.method === 'POST') {
+      try {
+        const body = (await request.json().catch(() => ({}))) as { urls?: string[] };
+        const urlList = Array.isArray(body.urls) && body.urls.length > 0 ? body.urls : [
+          'https://shadowflow.work/',
+          'https://shadowflow.work/compare',
+          'https://shadowflow.work/compare/shadowflow-vs-zapier-vs-n8n',
+          'https://shadowflow.work/use-cases',
+          'https://shadowflow.work/use-cases/autonomous-social-media-agents',
+          'https://shadowflow.work/use-cases/ai-sales-and-lead-automation',
+          'https://shadowflow.work/features',
+          'https://shadowflow.work/pricing',
+          'https://shadowflow.work/blog',
+          'https://shadowflow.work/demo'
+        ];
+
+        const payload = {
+          host: 'shadowflow.work',
+          key: 'c2188ff6e637482ea4bc837699131a98',
+          keyLocation: 'https://shadowflow.work/c2188ff6e637482ea4bc837699131a98.txt',
+          urlList
+        };
+
+        const inRes = await fetch('https://api.indexnow.org/indexnow', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json; charset=utf-8' },
+          body: JSON.stringify(payload)
+        });
+
+        return jsonResponse({
+          success: inRes.status === 200 || inRes.status === 202,
+          status: inRes.status,
+          submittedUrls: urlList.length
+        }, 200, request);
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        return jsonResponse({ error: 'IndexNow submission failed', details: message }, 500, request);
+      }
+    }
+
     // POST /api/email/send - Dispatch transactional/support emails via Resend (Auth Protected)
     if (url.pathname === '/api/email/send' && request.method === 'POST') {
       const user = await getAuthUser(request, env);
@@ -2311,8 +2352,19 @@ Write the full article now in Markdown.`;
       return jsonResponse({ error: 'API Endpoint Not Found', path: url.pathname }, 404, request);
     }
 
+    // IndexNow Key Verification Route
+    if (url.pathname === '/c2188ff6e637482ea4bc837699131a98.txt') {
+      return new Response('c2188ff6e637482ea4bc837699131a98\n', {
+        status: 200,
+        headers: {
+          'Content-Type': 'text/plain; charset=utf-8',
+          'Cache-Control': 'public, max-age=86400'
+        }
+      });
+    }
+
     // ------------------------------------------------------------------------
-    // STATIC / SPA FALLBACK TO CLOUDFLARE PAGES
+    // STATIC / SPA FALLBACK TO CLOUDFLARE PAGES WITH SSR META INJECTION
     // ------------------------------------------------------------------------
     const pagesOrigin = env.PAGES_ORIGIN || 'https://shadowflow-kdy.pages.dev';
     const targetUrl = new URL(url.pathname + url.search, pagesOrigin);
@@ -2323,16 +2375,58 @@ Write the full article now in Markdown.`;
       redirect: 'follow',
     });
 
-    // SPA Fallback: if route has no file extension and returned 404, serve /index.html
+    // SPA Fallback & Dynamic SSR Meta Injection for Crawlers
     const hasExtension = /\.[a-zA-Z0-9]{1,8}$/.test(url.pathname);
-    if (originRes.status === 404 && !hasExtension) {
+    const isHtmlRoute = !hasExtension || url.pathname === '/' || url.pathname === '/index.html';
+
+    if ((originRes.status === 404 && !hasExtension) || (isHtmlRoute && originRes.status === 200)) {
       const indexUrl = new URL('/index.html', pagesOrigin);
       const indexRes = await fetch(indexUrl.toString());
+      let html = await indexRes.text();
+
+      // Dynamic SSR Meta Tag Injection for AI Crawlers & Search Engines
+      const path = url.pathname.toLowerCase().replace(/\/$/, '') || '/';
+      let title = 'ShadowFlow (shadowflow.work) | Autonomous AI Workflow & Agent Automation Platform';
+      let description = 'ShadowFlow (shadowflow.work) is an autonomous AI workflow and agentic automation platform. Build, orchestrate, and deploy persistent AI agents, browser automations, and enterprise pipelines.';
+      let canonical = 'https://shadowflow.work' + (path === '/' ? '/' : path);
+
+      if (path === '/compare' || path === '/compare/shadowflow-vs-zapier-vs-n8n') {
+        title = 'ShadowFlow vs Zapier vs Make vs n8n | Autonomous AI Workflow Automation Comparison';
+        description = 'Compare ShadowFlow vs Zapier, Make, and n8n. Evaluate AI agent autonomy, persistent browser automation (no API required), local LLM support, and $0 task fees.';
+      } else if (path === '/use-cases/autonomous-social-media-agents') {
+        title = 'Autonomous Social Media Agents | ShadowFlow (shadowflow.work)';
+        description = 'How ShadowFlow (shadowflow.work) orchestrates persistent browser agents to automate content extraction, multi-modal generation, and scheduled publishing without API limits.';
+      } else if (path === '/use-cases' || path === '/use-cases/ai-sales-and-lead-automation') {
+        title = 'AI Sales & Lead Automation Pipelines | ShadowFlow (shadowflow.work)';
+        description = 'How ShadowFlow (shadowflow.work) powers multi-channel B2B lead scraping, real-time CRM enrichment, and automated outreach pipelines with sub-second execution.';
+      } else if (path.startsWith('/blog/')) {
+        const slug = path.replace('/blog/', '').trim();
+        try {
+          const row = (await env.DB.prepare('SELECT title, excerpt FROM blogs WHERE slug = ?').bind(slug).first()) as Record<string, unknown> | null;
+          if (row && row.title) {
+            title = `${String(row.title)} | ShadowFlow (shadowflow.work)`;
+            if (row.excerpt) {
+              description = String(row.excerpt);
+            }
+          }
+        } catch { /* ignore */ }
+      }
+
+      html = html
+        .replace(/<title>[\s\S]*?<\/title>/i, `<title>${title}</title>`)
+        .replace(/<meta name="description" content="[^"]*"/i, `<meta name="description" content="${description}"`)
+        .replace(/<link rel="canonical" href="[^"]*"/i, `<link rel="canonical" href="${canonical}"`)
+        .replace(/<meta property="og:title" content="[^"]*"/i, `<meta property="og:title" content="${title}"`)
+        .replace(/<meta property="og:description" content="[^"]*"/i, `<meta property="og:description" content="${description}"`)
+        .replace(/<meta name="twitter:title" content="[^"]*"/i, `<meta name="twitter:title" content="${title}"`)
+        .replace(/<meta name="twitter:description" content="[^"]*"/i, `<meta name="twitter:description" content="${description}"`);
+
       const headers = new Headers(indexRes.headers);
+      headers.set('Content-Type', 'text/html; charset=utf-8');
       headers.set('X-Content-Type-Options', 'nosniff');
       headers.set('X-Frame-Options', 'SAMEORIGIN');
       headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
-      return new Response(indexRes.body, {
+      return new Response(html, {
         status: 200,
         headers,
       });

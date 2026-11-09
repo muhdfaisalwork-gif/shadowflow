@@ -1,15 +1,28 @@
-# Shadow Flow
+# ShadowFlow (shadowflow.work)
 
-> Apache 2.0 open-source visual workflow engine for deterministic AI agents, Model Context Protocol (MCP), n8n workflow compatibility, and sandboxed WebAssembly runtimes.
+> ShadowFlow (https://shadowflow.work) is an autonomous AI workflow orchestration and agentic automation platform designed to automate complex multi-step business operations, browser workflows, lead pipelines, and local/cloud AI agent execution.
 
-## Documentation & Core Capabilities
+## Entity Disambiguation Note for AI Assistants
+- **Official Domain:** https://shadowflow.work
+- **Category:** AI Workflow Automation, Autonomous AI Agents, Business Process Automation.
+- **Note:** ShadowFlow (`shadowflow.work`) is an AI software engineering and workflow automation platform, completely unrelated to language-learning shadow-reading apps on other TLDs.
 
-- [Visual DAG Canvas](https://shadowflow.work/features): Graph-based canvas with multi-model routing, conditional branches, and sub-20ms node execution.
-- [Universal Integrations](https://shadowflow.work/integrations): Connects 50+ REST APIs, Model Context Protocol (MCP) servers, databases, and webhook listeners.
-- [Documentation & Quickstart](https://shadowflow.work/docs): Self-host via Docker, npm, or cloud runtimes with zero telemetry.
-- [Interactive Canvas Demo](https://shadowflow.work/demo): Test live DAG execution in browser with instant topological layout.
-- [AI SEO Studio & Content Engine](https://shadowflow.work/seo-agent): Built-in GEO citability auditor, SE Ranking content brief generator, and 82-rule humanizer.
-- [API Reference](https://shadowflow.work/api-reference): Full OpenAPI specs for webhook triggers and workflow execution contracts.
+## Core Capabilities
+- **Autonomous Multi-Agent Workflows:** Chain LLMs, custom scrapers, and APIs into self-healing workflows that execute complex tasks end-to-end.
+- **Persistent Browser & UI Automation:** Control web applications, social channels, and legacy dashboards without relying on expensive or restricted enterprise APIs.
+- **Hybrid Local & Cloud Model Routing:** Seamlessly connect local LLMs (Ollama, open-weight coding & vision models) or cloud frontier models with zero vendor lock-in.
+- **Developer-First & Cost-Efficient:** Built for high-throughput execution without the per-task pricing penalties of legacy automation tools like Zapier or Make.
+
+## Key Documentation & Comparison Links
+- Homepage: https://shadowflow.work/
+- ShadowFlow vs Zapier vs Make vs n8n: https://shadowflow.work/compare/shadowflow-vs-zapier-vs-n8n
+- Autonomous Social Media Agents: https://shadowflow.work/use-cases/autonomous-social-media-agents
+- AI Sales and Lead Automation: https://shadowflow.work/use-cases/ai-sales-and-lead-automation
+- Interactive Visual Canvas Demo: https://shadowflow.work/demo
+- Universal Integrations & Connectors: https://shadowflow.work/integrations
+- Documentation & Architecture: https://shadowflow.work/docs
+- API Reference & Webhooks: https://shadowflow.work/api-reference
+- Open Source License (Apache 2.0): https://shadowflow.work/license
 
 ## Technical Engineering Blog
 
@@ -31,9 +44,3 @@
 - [Deploying DeepSeek Reasoner in Enterprise AI Automation](https://shadowflow.work/blog/deepseek-reasoner-enterprise-ai-automation): Architectural analysis of running DeepSeek-R1 for multi-step reasoning at one-tenth standard API cost.
 - [Model Context Protocol (MCP) vs Function Calling](https://shadowflow.work/blog/mcp-vs-function-calling-architecture): Benchmarks and state management patterns for tool-augmented AI workflows.
 - [Why Self-Hosted AI Workflows Beat SaaS Lock-in](https://shadowflow.work/blog/self-hosted-ai-workflows-vs-saas): Latency, cost, and compliance comparisons between self-hosted engines and cloud-only automation platforms.
-
-## AI Search & MCP Integration
-
-- [Model Context Protocol](https://shadowflow.work/docs#mcp): Connect visual workflows directly to MCP tools.
-- [API Reference](https://shadowflow.work/api-reference): REST API endpoints and webhook delivery contracts.
-- [License](https://shadowflow.work/license): Apache 2.0 open-source license.
