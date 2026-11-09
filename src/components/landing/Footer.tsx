@@ -17,6 +17,12 @@ const footerLinks: Record<string, FooterLinkItem[]> = {
     { name: "Roadmap", href: "/roadmap" },
     { name: "AI SEO Studio", href: "/seo-agent" },
   ],
+  "Compare & Solutions": [
+    { name: "ShadowFlow vs Zapier & n8n", href: "/compare/shadowflow-vs-zapier-vs-n8n" },
+    { name: "Autonomous Social Media Agents", href: "/use-cases/autonomous-social-media-agents" },
+    { name: "AI Sales & Lead Automation", href: "/use-cases/ai-sales-and-lead-automation" },
+    { name: "Demo Video & Audio Guide", href: "/blog/how-to-build-presentation-demo-videos-with-audio" },
+  ],
   Resources: [
     { name: "Documentation", href: "/docs" },
     { name: "API Reference", href: "/api-reference" },

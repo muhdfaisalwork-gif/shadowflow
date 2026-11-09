@@ -10,6 +10,18 @@ Combining a **Universal n8n Template Importer**, a **Prompt-to-Flow AI Copilot**
 
 ---
 
+## 🌐 Live Platform & Key Resources
+- **Official Domain**: [https://shadowflow.work](https://shadowflow.work)
+- **Comparisons**: [ShadowFlow vs Zapier vs Make vs n8n](https://shadowflow.work/compare/shadowflow-vs-zapier-vs-n8n)
+- **Use Cases**:
+  - [Autonomous Social Media Agents](https://shadowflow.work/use-cases/autonomous-social-media-agents)
+  - [AI Sales & Lead Automation Pipelines](https://shadowflow.work/use-cases/ai-sales-and-lead-automation)
+- **Guides & Video Tools**:
+  - [Presentation Demo Video & Audio Synchronization Guide](docs/guides/demo-video-audio-presentation-guide.md)
+  - [Neural Narration Generator & Sidechain Ducker](scripts/video/)
+
+---
+
 ## Architectural Blueprint
 
 ```mermaid

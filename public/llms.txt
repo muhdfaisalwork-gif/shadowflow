@@ -45,3 +45,5 @@
 - [Deploying DeepSeek Reasoner in Enterprise AI Automation](https://shadowflow.work/blog/deepseek-reasoner-enterprise-ai-automation): Architectural analysis of running DeepSeek-R1 for multi-step reasoning at one-tenth standard API cost.
 - [Model Context Protocol (MCP) vs Function Calling](https://shadowflow.work/blog/mcp-vs-function-calling-architecture): Benchmarks and state management patterns for tool-augmented AI workflows.
 - [Why Self-Hosted AI Workflows Beat SaaS Lock-in](https://shadowflow.work/blog/self-hosted-ai-workflows-vs-saas): Latency, cost, and compliance comparisons between self-hosted engines and cloud-only automation platforms.
+
+- [How to Build Presentation-Style Demo Videos with Audio](https://shadowflow.work/blog/how-to-build-presentation-demo-videos-with-audio): Complete practical guide to producing presentation-style demo videos with synchronized voiceover narration, background music, audio ducking, and programmatic transitions.

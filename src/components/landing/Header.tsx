@@ -19,11 +19,12 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 
 const navLinks = [
   { name: "Features", href: "/features" },
+  { name: "Compare", href: "/compare" },
+  { name: "Use Cases", href: "/use-cases" },
   { name: "Integrations", href: "/integrations" },
-  { name: "Pricing", href: "/pricing" },
   { name: "Docs", href: "/docs" },
   { name: "Blog", href: "/blog" },
-  { name: "AI SEO", href: "/seo-agent" },
+  { name: "Pricing", href: "/pricing" },
 ];
 
 export function Header() {
