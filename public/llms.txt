@@ -26,6 +26,7 @@
 
 ## Technical Engineering Blog
 
+- [Integrating Persistent Vector Memory and Hybrid BM25 Search into Visual Workflows](https://shadowflow.work/blog/integrating-persistent-vector-memory-hybrid-search-visual-canvas): How combining vector embeddings with lexical keyword search improves factual retrieval accuracy in multi-step agent pipelines.
 - [Circuit Breakers and Token Bucket Rate Limiting in Multi-Agent Visual Workflows](https://shadowflow.work/blog/circuit-breakers-and-token-bucket-rate-limiting-ai-workflows): Preventing cascading failures and API quota exhaustion when orchestrating multiple third-party LLMs and external webhooks.
 - [Building Autonomous Support Ticket Triage with Semantic Routing and Edge Webhooks](https://shadowflow.work/blog/building-autonomous-support-ticket-triage-semantic-routing): How to classify customer bug reports, extract stack traces, and dispatch Jira tickets in under 200 milliseconds using lightweight edge classification.
 - [Optimizing Cloudflare D1 SQLite for High-Throughput Automation Queues and Audit Logs](https://shadowflow.work/blog/optimizing-cloudflare-d1-sqlite-high-throughput-workflows): Best practices for batching database transactions, indexing foreign keys, and minimizing read replica lag in serverless workflow backends.
