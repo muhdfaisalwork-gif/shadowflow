@@ -96,9 +96,9 @@ export default function Blog() {
               </div>
               <div>
                 <div className="flex items-center gap-2 mb-1">
-                  <h3 className="font-bold text-lg text-foreground">
+                  <h2 className="font-bold text-lg text-foreground">
                     Powered by Shadow Flow SEO Agent Studio
-                  </h3>
+                  </h2>
                   <Badge variant="outline" className="text-xs bg-background/50">
                     {isLoading ? "Syncing Engine..." : `${posts.length} Articles Live`}
                   </Badge>
@@ -195,6 +195,7 @@ export default function Blog() {
                 <button
                   key={cat}
                   type="button"
+                  aria-pressed={selectedCategory === cat}
                   onClick={() => setSelectedCategory(cat)}
                   className={`text-xs px-3.5 py-1.5 rounded-full font-medium transition-colors ${
                     selectedCategory === cat
@@ -208,8 +209,10 @@ export default function Blog() {
             </div>
 
             <div className="relative w-full sm:w-72">
-              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
               <Input
+                type="search"
+                aria-label="Search articles and guides"
                 placeholder="Search articles & guides..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
@@ -264,9 +267,10 @@ export default function Blog() {
                       <span>{post.publishedAt}</span>
                       <Link
                         to={`/blog/${post.slug}`}
+                        aria-label={`Read ${post.title}`}
                         className="text-primary font-medium inline-flex items-center gap-1 hover:underline"
                       >
-                        Read <ArrowRight className="w-3.5 h-3.5" />
+                        Read <ArrowRight className="w-3.5 h-3.5" aria-hidden="true" />
                       </Link>
                     </div>
                   </CardContent>
