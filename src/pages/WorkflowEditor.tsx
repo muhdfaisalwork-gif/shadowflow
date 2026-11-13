@@ -1,4 +1,4 @@
-import { type FC, useEffect, useState } from 'react';
+import { type FC, useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { ReactFlowProvider } from '@xyflow/react';
 
@@ -47,11 +47,7 @@ const WorkflowEditor: FC = () => {
     }
   }, [searchParams, setAIAssistantOpen]);
 
-  useEffect(() => {
-    loadWorkflow();
-  }, [id, user]);
-
-  const loadWorkflow = async () => {
+  const loadWorkflow = useCallback(async () => {
     if (demo) {
       if (id && id !== 'new') {
         const foundDemo = demo.workflows.find((w) => w.id === id);
@@ -172,7 +168,11 @@ const WorkflowEditor: FC = () => {
     }
     
     setIsLoading(false);
-  };
+  }, [id, user, demo, navigate, setWorkflow, toast]);
+
+  useEffect(() => {
+    loadWorkflow();
+  }, [loadWorkflow]);
 
   const saveVersion = async (wfId: string) => {
     if (!user || !workflow) return;

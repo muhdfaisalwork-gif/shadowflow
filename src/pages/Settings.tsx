@@ -1,4 +1,4 @@
-import { type FC, useState, useEffect } from 'react';
+import { type FC, useState, useEffect, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { ArrowLeft, User, Zap, Plus, Trash2, Key, Loader2, CreditCard, Sparkles, LogOut } from 'lucide-react';
@@ -88,12 +88,7 @@ const Settings: FC = () => {
     toast({ title: `Switched to ${SAAS_PLANS[tier].name}` });
   };
 
-  useEffect(() => {
-    fetchCredentials();
-    fetchUsage();
-  }, [user]);
-
-  const fetchCredentials = async () => {
+  const fetchCredentials = useCallback(async () => {
     setIsLoadingCreds(true);
     if (d1Api.getToken()) {
       try {
@@ -135,9 +130,9 @@ const Settings: FC = () => {
       // ignore
     }
     setIsLoadingCreds(false);
-  };
+  }, [user]);
 
-  const fetchUsage = async () => {
+  const fetchUsage = useCallback(async () => {
     if (!user) {
       setRunCount(18);
       return;
@@ -165,7 +160,12 @@ const Settings: FC = () => {
 
       setRunCount(count || 0);
     }
-  };
+  }, [user]);
+
+  useEffect(() => {
+    fetchCredentials();
+    fetchUsage();
+  }, [fetchCredentials, fetchUsage]);
 
   const handleAddCredential = async () => {
     if (!newCredName.trim() || !newCredValue.trim()) return;

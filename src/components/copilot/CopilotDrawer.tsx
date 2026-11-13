@@ -159,10 +159,12 @@ const CopilotDrawer: FC<CopilotDrawerProps> = ({ isOpen, onClose, initialPrompt 
     }
   }, [messages, isLoading]);
 
+  const synthesizeRef = useRef<(promptOverride?: string) => Promise<void>>(async () => {});
+
   useEffect(() => {
     if (isOpen && initialPrompt && initialTriggerRef.current !== initialPrompt) {
       initialTriggerRef.current = initialPrompt;
-      handleSynthesize(initialPrompt);
+      synthesizeRef.current(initialPrompt);
     }
   }, [isOpen, initialPrompt]);
 
@@ -239,6 +241,7 @@ const CopilotDrawer: FC<CopilotDrawerProps> = ({ isOpen, onClose, initialPrompt 
       setIsLoading(false);
     }
   };
+  synthesizeRef.current = handleSynthesize;
 
   const handleSelfHealGraph = () => {
     const report = validateAndRepairWorkflow(nodes, edges);
