@@ -19,6 +19,7 @@ import {
 } from '@/lib/copilot/aiEngine';
 import {
   evaluateExpression,
+  resolveConfigExpressions,
   validateSafeExpression,
   executeWorkflowDAG,
   type ExecutionContext,
@@ -317,6 +318,17 @@ describe('4. Sandboxed Microservices Task Runner & Safe Expression Evaluator (ex
     expect(() => validateSafeExpression('process.env.SECRET')).toThrow(/Security Violation/);
     expect(() => validateSafeExpression('Deno.run({ cmd: ["sh"] })')).toThrow(/Security Violation/);
     expect(() => validateSafeExpression('({}).__proto__.polluted = 1')).toThrow(/Security Violation/);
+
+    const nestedResolved = resolveConfigExpressions(
+      {
+        headers: [{ name: 'X-Channel', value: '{{ $env.SLACK_CHANNEL }}' }],
+        messages: [{ role: 'user', content: 'Email {{ $json.customer.email }}' }],
+      },
+      context.input,
+      context
+    );
+    expect(nestedResolved.headers).toEqual([{ name: 'X-Channel', value: '#secops' }]);
+    expect(nestedResolved.messages).toEqual([{ role: 'user', content: 'Email alice@example.com' }]);
   });
 
   it('executes DAG deterministically and gates conditional branches (marking inactive branch as skipped)', async () => {

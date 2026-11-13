@@ -178,8 +178,26 @@ export function evaluateExpression(
   });
 }
 
+function resolveConfigValue(
+  value: unknown,
+  currentInput: Record<string, unknown>,
+  context: ExecutionContext
+): unknown {
+  if (typeof value === 'string') {
+    return evaluateExpression(value, currentInput, context);
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => resolveConfigValue(item, currentInput, context));
+  }
+  if (value !== null && typeof value === 'object') {
+    return resolveConfigExpressions(value as Record<string, unknown>, currentInput, context);
+  }
+  return value;
+}
+
 /**
- * Recursively resolves all `{{ ... }}` expressions inside a node's config object.
+ * Recursively resolves all `{{ ... }}` expressions inside a node's config object,
+ * including nested objects and objects inside arrays.
  */
 export function resolveConfigExpressions(
   config: Record<string, unknown>,
@@ -188,17 +206,7 @@ export function resolveConfigExpressions(
 ): Record<string, unknown> {
   const resolved: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(config)) {
-    if (typeof value === 'string') {
-      resolved[key] = evaluateExpression(value, currentInput, context);
-    } else if (Array.isArray(value)) {
-      resolved[key] = value.map((item) =>
-        typeof item === 'string' ? evaluateExpression(item, currentInput, context) : item
-      );
-    } else if (value !== null && typeof value === 'object') {
-      resolved[key] = resolveConfigExpressions(value as Record<string, unknown>, currentInput, context);
-    } else {
-      resolved[key] = value;
-    }
+    resolved[key] = resolveConfigValue(value, currentInput, context);
   }
   return resolved;
 }

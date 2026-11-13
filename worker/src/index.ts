@@ -66,7 +66,12 @@ function getCorsHeaders(request: Request): HeadersInit {
   };
 }
 
-function jsonResponse(data: unknown, status = 200, request?: Request): Response {
+function jsonResponse(
+  data: unknown,
+  status = 200,
+  request?: Request,
+  extraHeaders?: Record<string, string>
+): Response {
   const cors = request ? getCorsHeaders(request) : { 'Access-Control-Allow-Origin': '*' };
   return new Response(JSON.stringify(data, null, 2), {
     status,
@@ -77,6 +82,7 @@ function jsonResponse(data: unknown, status = 200, request?: Request): Response 
       'Referrer-Policy': 'strict-origin-when-cross-origin',
       'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
       ...cors,
+      ...(extraHeaders || {}),
     },
   });
 }
@@ -1324,7 +1330,7 @@ export default {
         'SELECT id, name, description, is_active, updated_at, created_at, nodes, edges, settings FROM workflows WHERE user_id = ? ORDER BY updated_at DESC'
       )
         .bind(user.id)
-        .all();
+        .all<Record<string, unknown>>();
 
       const workflows = (rows.results || []).map((row: Record<string, unknown>) => ({
         id: String(row.id),
@@ -1551,7 +1557,7 @@ export default {
 
       const rows = await env.DB.prepare('SELECT id, provider, name, data, created_at, updated_at FROM user_credentials WHERE user_id = ?')
         .bind(user.id)
-        .all();
+        .all<Record<string, unknown>>();
 
       const credentials = (rows.results || []).map((row: Record<string, unknown>) => ({
         id: String(row.id),
@@ -1765,7 +1771,7 @@ export default {
           'SELECT id, node_type as type, label, data, created_at as createdAt, updated_at as updatedAt FROM user_graph_memory WHERE user_id = ? ORDER BY updated_at DESC LIMIT 100'
         )
           .bind(user.id)
-          .all();
+          .all<Record<string, unknown>>();
 
         const nodes = (rows.results || []).map((row: Record<string, unknown>) => {
           let properties = {};
@@ -1848,7 +1854,7 @@ export default {
       try {
         const rows = await env.DB.prepare(
           'SELECT id, slug, title, excerpt, content, category, published_at as publishedAt, updated_at as updatedAt, reading_time_minutes as readingTimeMinutes, author, author_role as authorRole, target_keyword as targetKeyword, tags, schema_json_ld as schemaJsonLd FROM blogs ORDER BY published_at DESC'
-        ).all();
+        ).all<Record<string, unknown>>();
 
         const posts = (rows.results || []).map((row: Record<string, unknown>) => {
           let tags = [];
@@ -2094,7 +2100,7 @@ Write the full article now in Markdown.`;
           modelUsed = groqRes.model;
         }
 
-        const slug = keyword.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+        const slug = (keyword || topic || 'shadowflow-post').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
         const excerpt = generatedMarkdown
           .split('\n')
           .find((line) => line.trim().length > 40 && !line.startsWith('#'))
