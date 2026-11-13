@@ -81,7 +81,7 @@ export default function UseCaseSalesLeadAutomation() {
         }}
       />
 
-      <main className="container mx-auto px-4 py-12 max-w-5xl">
+      <main className="container mx-auto px-4 pt-24 pb-12 max-w-5xl">
         {/* Breadcrumb Navigation */}
         <nav aria-label="Breadcrumb" className="mb-6 text-xs text-muted-foreground">
           <ol className="flex items-center space-x-2">

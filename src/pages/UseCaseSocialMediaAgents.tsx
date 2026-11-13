@@ -3,19 +3,11 @@ import { Header } from "@/components/landing/Header";
 import { Footer } from "@/components/landing/Footer";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
-  Bot,
-  Globe,
-  Share2,
-  Sparkles,
   ArrowRight,
   ShieldCheck,
   CheckCircle2,
-  Layers,
-  Terminal,
-  Clock,
-  Zap,
 } from "lucide-react";
 
 export default function UseCaseSocialMediaAgents() {
@@ -74,7 +66,7 @@ export default function UseCaseSocialMediaAgents() {
         }}
       />
 
-      <main className="container mx-auto px-4 py-12 max-w-5xl">
+      <main className="container mx-auto px-4 pt-24 pb-12 max-w-5xl">
         {/* Breadcrumb Navigation */}
         <nav aria-label="Breadcrumb" className="mb-6 text-xs text-muted-foreground">
           <ol className="flex items-center space-x-2">
