@@ -80,6 +80,15 @@ export default function BlogPost() {
     };
   }, [slug]);
 
+  useEffect(() => {
+    if (!post?.title) return;
+    const prevTitle = document.title;
+    document.title = `${post.title} | ShadowFlow`;
+    return () => {
+      document.title = prevTitle;
+    };
+  }, [post?.title]);
+
   const relatedPosts = useMemo(() => {
     return allPosts.filter((p) => p.slug !== slug).slice(0, 3);
   }, [allPosts, slug]);
@@ -125,7 +134,7 @@ export default function BlogPost() {
   const jsonLd = generateTechArticleSchema(
     post.title,
     post.description,
-    window.location.href,
+    `https://shadowflow.work/blog/${post.slug}`,
     post.publishedAt
   );
 
