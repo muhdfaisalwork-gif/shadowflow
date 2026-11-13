@@ -268,6 +268,28 @@ export function validateAndRepairWorkflow(
     const triggerNode =
       nodes.find((n) => n.data.category === 'triggers' || n.data.category === 'trigger') || nodes[0];
 
+    // If a trigger has no outgoing edges yet, wire it as the root into the first non-trigger root node
+    if (!connectedIds.has(triggerNode.id)) {
+      const targetIds = new Set(edgesToKeep.map((e) => e.target));
+      const firstRoot =
+        nodes.find((n) => n.id !== triggerNode.id && !targetIds.has(n.id)) ||
+        nodes.find((n) => n.id !== triggerNode.id);
+      if (firstRoot) {
+        orphanNodesWired++;
+        edgesToKeep.push({
+          id: `edge-repaired-${triggerNode.id}-${firstRoot.id}`,
+          source: triggerNode.id,
+          target: firstRoot.id,
+          sourceHandle: 'output_0',
+          type: 'custom',
+          animated: true,
+          style: { stroke: '#3B82F6', strokeWidth: 2 },
+        });
+        connectedIds.add(triggerNode.id);
+        connectedIds.add(firstRoot.id);
+      }
+    }
+
     let lastConnectedNode =
       nodes.filter((n) => connectedIds.has(n.id)).pop() || triggerNode;
 

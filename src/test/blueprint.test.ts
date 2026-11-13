@@ -306,6 +306,13 @@ describe('3. Prompt-to-Flow AI Copilot & Self-Healing Engine (aiEngine.ts)', () 
     expect(report.danglingEdgesStripped).toBe(1);
     expect(report.orphanNodesWired).toBe(1);
     expect(report.edges.some((e) => e.target === 'orphan-99' || e.source === 'orphan-99')).toBe(true);
+
+    // Triggerless connected graph should wire auto-injected trigger as root -> first node
+    const noTriggerNodes = initial.nodes.slice(1);
+    const noTriggerReport = validateAndRepairWorkflow(noTriggerNodes, []);
+    const autoTrigger = noTriggerReport.nodes.find((n) => n.id.startsWith('trigger-auto-'));
+    expect(autoTrigger).toBeDefined();
+    expect(noTriggerReport.edges.some((e) => e.source === autoTrigger!.id)).toBe(true);
   });
 });
 
