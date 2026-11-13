@@ -51,7 +51,7 @@ export function Header() {
         {/* Top Announcement Slide / Sponsorship Banner */}
         <SponsorshipBanner onOpenModal={() => setSponsorModalOpen(true)} />
 
-        <nav className="container mx-auto px-4 sm:px-6 lg:px-8">
+        <nav aria-label="Primary navigation" className="container mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
             {/* Logo */}
             <Link to="/" className="flex items-center gap-2 hover:opacity-90 transition-opacity">
@@ -143,7 +143,9 @@ export function Header() {
                 variant="ghost"
                 size="icon"
                 onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-                aria-label="Open mobile menu"
+                aria-label={mobileMenuOpen ? "Close mobile menu" : "Open mobile menu"}
+                aria-expanded={mobileMenuOpen}
+                aria-controls="mobile-navigation-menu"
               >
                 {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
               </Button>
@@ -153,6 +155,7 @@ export function Header() {
           {/* Mobile Menu */}
           {mobileMenuOpen && (
             <motion.div
+              id="mobile-navigation-menu"
               initial={{ opacity: 0, height: 0 }}
               animate={{ opacity: 1, height: "auto" }}
               exit={{ opacity: 0, height: 0 }}

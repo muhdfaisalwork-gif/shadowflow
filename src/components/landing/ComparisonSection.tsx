@@ -80,21 +80,33 @@ const comparisonData = [
 const renderStatusIcon = (status: boolean | string) => {
   if (status === true) {
     return (
-      <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-emerald-500/20 text-emerald-400">
-        <Check className="w-4 h-4" />
+      <span
+        role="img"
+        aria-label="Supported"
+        className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-emerald-500/20 text-emerald-400"
+      >
+        <Check className="w-4 h-4" aria-hidden="true" />
       </span>
     );
   }
   if (status === false) {
     return (
-      <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-red-500/15 text-red-400">
-        <X className="w-4 h-4" />
+      <span
+        role="img"
+        aria-label="Not supported"
+        className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-red-500/15 text-red-400"
+      >
+        <X className="w-4 h-4" aria-hidden="true" />
       </span>
     );
   }
   return (
-    <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-amber-500/15 text-amber-400 font-mono text-xs">
-      <Minus className="w-3.5 h-3.5" />
+    <span
+      role="img"
+      aria-label="Partial support"
+      className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-amber-500/15 text-amber-400 font-mono text-xs"
+    >
+      <Minus className="w-3.5 h-3.5" aria-hidden="true" />
     </span>
   );
 };
