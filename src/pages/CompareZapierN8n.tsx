@@ -78,6 +78,14 @@ export default function CompareZapierN8n() {
       n8n: "Sustainable Use License (Restricts commercial multi-tenancy)",
       highlight: true,
     },
+    {
+      feature: "1-Click n8n JSON Import & Auto-Layout",
+      shadowflow: "Universal n8n importer with LangChain AI handles & Kahn layout",
+      zapier: "Not supported",
+      make: "Not supported",
+      n8n: "Manual JSON paste; no cross-platform migration",
+      highlight: true,
+    },
   ];
 
   const faqs = [
