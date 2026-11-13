@@ -1,4 +1,4 @@
-import { useState, useRef, MouseEvent } from "react";
+import { useState, useRef } from "react";
 import { motion, useScroll, useTransform } from "framer-motion";
 import { Link } from "react-router-dom";
 import {
@@ -7,13 +7,9 @@ import {
   Play,
   Sparkles,
   Zap,
-  Monitor,
-  Terminal,
-  ShieldCheck,
   CheckCircle2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { HeroWorkflowCanvas } from "./HeroWorkflowCanvas";
 import { DemoVideoModal } from "./DemoVideoModal";
 

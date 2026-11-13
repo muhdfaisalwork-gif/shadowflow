@@ -1,7 +1,6 @@
 import { useState } from "react";
-import { motion } from "framer-motion";
-import { Check, X, Minus, ShieldCheck, Zap } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
+import { Link } from "react-router-dom";
+import { Check, X, Minus, ShieldCheck, ArrowRight } from "lucide-react";
 
 const competitors = [
   { name: "Shadow Flow", highlight: true, license: "Apache 2.0 Open Source" },
@@ -137,12 +136,13 @@ export function ComparisonSection() {
           <table className="w-full min-w-[760px] text-left border-collapse">
             <thead>
               <tr className="border-b border-border/80 bg-muted/40">
-                <th className="py-5 px-6 font-bold text-sm text-foreground w-2/5">
+                <th scope="col" className="py-5 px-6 font-bold text-sm text-foreground w-2/5">
                   Capability & Architectural Standard
                 </th>
                 {competitors.map((comp) => (
                   <th
                     key={comp.name}
+                    scope="col"
                     className={`py-5 px-4 font-bold text-center ${
                       comp.highlight
                         ? "bg-primary/10 border-x border-primary/30 text-primary"
@@ -207,7 +207,13 @@ export function ComparisonSection() {
               <X className="w-3.5 h-3.5 text-red-400" /> Unsupported
             </span>
           </div>
-          <span>100% Apache 2.0 freedom guarantees no commercial lock-out.</span>
+          <Link
+            to="/compare/shadowflow-vs-zapier-vs-n8n"
+            className="inline-flex items-center gap-1.5 text-primary hover:underline font-sans font-semibold"
+          >
+            Read full ShadowFlow vs Zapier vs Make vs n8n benchmark
+            <ArrowRight className="w-3.5 h-3.5" aria-hidden="true" />
+          </Link>
         </div>
 
       </div>
