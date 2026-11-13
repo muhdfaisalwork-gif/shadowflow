@@ -2385,10 +2385,17 @@ Write the full article now in Markdown.`;
       let html = await indexRes.text();
 
       // Dynamic SSR Meta Tag Injection for AI Crawlers & Search Engines
+      const escapeHtmlAttr = (val: string) =>
+        val
+          .replace(/&/g, '&amp;')
+          .replace(/"/g, '&quot;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;');
+
       const path = url.pathname.toLowerCase().replace(/\/$/, '') || '/';
       let title = 'ShadowFlow (shadowflow.work) | Autonomous AI Workflow & Agent Automation Platform';
       let description = 'ShadowFlow (shadowflow.work) is an autonomous AI workflow and agentic automation platform. Build, orchestrate, and deploy persistent AI agents, browser automations, and enterprise pipelines.';
-      let canonical = 'https://shadowflow.work' + (path === '/' ? '/' : path);
+      const canonical = 'https://shadowflow.work' + (path === '/' ? '/' : path);
 
       if (path === '/compare' || path === '/compare/shadowflow-vs-zapier-vs-n8n') {
         title = 'ShadowFlow vs Zapier vs Make vs n8n | Autonomous AI Workflow Automation Comparison';
@@ -2399,6 +2406,33 @@ Write the full article now in Markdown.`;
       } else if (path === '/use-cases' || path === '/use-cases/ai-sales-and-lead-automation') {
         title = 'AI Sales & Lead Automation Pipelines | ShadowFlow (shadowflow.work)';
         description = 'How ShadowFlow (shadowflow.work) powers multi-channel B2B lead scraping, real-time CRM enrichment, and automated outreach pipelines with sub-second execution.';
+      } else if (path === '/features') {
+        title = 'Features | ShadowFlow (shadowflow.work) Autonomous AI Workflow Platform';
+        description = 'Explore ShadowFlow features: Prompt-to-Flow AI Copilot, Universal n8n JSON Importer, Kahn auto-layout, 128+ templates, and sandboxed task runner.';
+      } else if (path === '/pricing') {
+        title = 'Pricing | ShadowFlow (shadowflow.work) — $0 Self-Hosted Apache 2.0 & Managed Cloud';
+        description = 'Self-host ShadowFlow free forever under Apache 2.0 or start on Managed Cloud with zero per-step task fees.';
+      } else if (path === '/integrations') {
+        title = 'Integrations & 128+ Templates | ShadowFlow (shadowflow.work)';
+        description = 'Connect OpenAI, Anthropic, Gemini, Ollama, Slack, GitHub, Supabase, PostgreSQL, and 128+ production n8n-compatible templates.';
+      } else if (path === '/docs') {
+        title = 'Documentation & Architecture | ShadowFlow (shadowflow.work)';
+        description = 'Learn how to build, import, and execute autonomous AI workflows with ShadowFlow’s visual DAG engine, copilot, and Cloudflare D1 worker.';
+      } else if (path === '/api-reference') {
+        title = 'API Reference | ShadowFlow (shadowflow.work)';
+        description = 'REST, webhook, and MCP API reference for orchestrating ShadowFlow workflows and AI agents programmatically.';
+      } else if (path === '/blog') {
+        title = 'Engineering & AI Automation Blog | ShadowFlow (shadowflow.work)';
+        description = 'Technical guides on AI workflow orchestration, n8n migration, local Ollama automation, MCP servers, and serverless DAG execution.';
+      } else if (path === '/tutorials') {
+        title = 'Tutorials & Video Guides | ShadowFlow (shadowflow.work)';
+        description = 'Step-by-step tutorials for building autonomous AI agents, browser automations, and local LLM workflows in ShadowFlow.';
+      } else if (path === '/seo-agent') {
+        title = 'Autonomous SEO & GEO Agent | ShadowFlow (shadowflow.work)';
+        description = 'Live SEO, GEO, and content intelligence engine powering ShadowFlow rankings across Google, ChatGPT Search, and Perplexity.';
+      } else if (path === '/about' || path === '/changelog' || path === '/roadmap' || path === '/community' || path === '/partners') {
+        const label = path.slice(1).charAt(0).toUpperCase() + path.slice(2);
+        title = `${label} | ShadowFlow (shadowflow.work)`;
       } else if (path.startsWith('/blog/')) {
         const slug = path.replace('/blog/', '').trim();
         try {
@@ -2412,20 +2446,27 @@ Write the full article now in Markdown.`;
         } catch { /* ignore */ }
       }
 
+      const safeTitle = escapeHtmlAttr(title);
+      const safeDescription = escapeHtmlAttr(description);
+      const safeCanonical = escapeHtmlAttr(canonical);
+
       html = html
-        .replace(/<title>[\s\S]*?<\/title>/i, `<title>${title}</title>`)
-        .replace(/<meta name="description" content="[^"]*"/i, `<meta name="description" content="${description}"`)
-        .replace(/<link rel="canonical" href="[^"]*"/i, `<link rel="canonical" href="${canonical}"`)
-        .replace(/<meta property="og:title" content="[^"]*"/i, `<meta property="og:title" content="${title}"`)
-        .replace(/<meta property="og:description" content="[^"]*"/i, `<meta property="og:description" content="${description}"`)
-        .replace(/<meta name="twitter:title" content="[^"]*"/i, `<meta name="twitter:title" content="${title}"`)
-        .replace(/<meta name="twitter:description" content="[^"]*"/i, `<meta name="twitter:description" content="${description}"`);
+        .replace(/<title>[\s\S]*?<\/title>/i, `<title>${safeTitle}</title>`)
+        .replace(/<meta name="description" content="[^"]*"/i, `<meta name="description" content="${safeDescription}"`)
+        .replace(/<link rel="canonical" href="[^"]*"/i, `<link rel="canonical" href="${safeCanonical}"`)
+        .replace(/<meta property="og:url" content="[^"]*"/i, `<meta property="og:url" content="${safeCanonical}"`)
+        .replace(/<meta property="og:title" content="[^"]*"/i, `<meta property="og:title" content="${safeTitle}"`)
+        .replace(/<meta property="og:description" content="[^"]*"/i, `<meta property="og:description" content="${safeDescription}"`)
+        .replace(/<meta name="twitter:title" content="[^"]*"/i, `<meta name="twitter:title" content="${safeTitle}"`)
+        .replace(/<meta name="twitter:description" content="[^"]*"/i, `<meta name="twitter:description" content="${safeDescription}"`);
 
       const headers = new Headers(indexRes.headers);
       headers.set('Content-Type', 'text/html; charset=utf-8');
       headers.set('X-Content-Type-Options', 'nosniff');
       headers.set('X-Frame-Options', 'SAMEORIGIN');
       headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
+      headers.set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains; preload');
+      headers.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
       return new Response(html, {
         status: 200,
         headers,

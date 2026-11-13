@@ -1,4 +1,5 @@
-// Shadow Flow App v3 - With Authentication & Error Boundaries
+// Shadow Flow App v3 - With Authentication, Error Boundaries & Route Code-Splitting
+import { Suspense, lazy } from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -10,38 +11,45 @@ import { DemoProvider } from "@/contexts/DemoContext";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import ProtectedRoute from "@/components/auth/ProtectedRoute";
 import Index from "./pages/Index";
-import Pricing from "./pages/Pricing";
-import Login from "./pages/Login";
-import Signup from "./pages/Signup";
-import VerifyEmail from "./pages/VerifyEmail";
-import Dashboard from "./pages/Dashboard";
-import WorkflowEditor from "./pages/WorkflowEditor";
-import SharedWorkflow from "./pages/SharedWorkflow";
-import Settings from "./pages/Settings";
-import ResetPassword from "./pages/ResetPassword";
-import NotFound from "./pages/NotFound";
-import SEOAgent from "./pages/SEOAgent";
-import Blog from "./pages/Blog";
-import BlogPost from "./pages/BlogPost";
-import Features from "./pages/Features";
-import Integrations from "./pages/Integrations";
-import Changelog from "./pages/Changelog";
-import Roadmap from "./pages/Roadmap";
-import Docs from "./pages/Docs";
-import ApiReference from "./pages/ApiReference";
-import Community from "./pages/Community";
-import Tutorials from "./pages/Tutorials";
-import About from "./pages/About";
-import Careers from "./pages/Careers";
-import Contact from "./pages/Contact";
-import Partners from "./pages/Partners";
-import Privacy from "./pages/Privacy";
-import Terms from "./pages/Terms";
-import CookiePolicy from "./pages/CookiePolicy";
-import License from "./pages/License";
-import CompareZapierN8n from "./pages/CompareZapierN8n";
-import UseCaseSocialMediaAgents from "./pages/UseCaseSocialMediaAgents";
-import UseCaseSalesLeadAutomation from "./pages/UseCaseSalesLeadAutomation";
+
+const Pricing = lazy(() => import("./pages/Pricing"));
+const Login = lazy(() => import("./pages/Login"));
+const Signup = lazy(() => import("./pages/Signup"));
+const VerifyEmail = lazy(() => import("./pages/VerifyEmail"));
+const Dashboard = lazy(() => import("./pages/Dashboard"));
+const WorkflowEditor = lazy(() => import("./pages/WorkflowEditor"));
+const SharedWorkflow = lazy(() => import("./pages/SharedWorkflow"));
+const Settings = lazy(() => import("./pages/Settings"));
+const ResetPassword = lazy(() => import("./pages/ResetPassword"));
+const NotFound = lazy(() => import("./pages/NotFound"));
+const SEOAgent = lazy(() => import("./pages/SEOAgent"));
+const Blog = lazy(() => import("./pages/Blog"));
+const BlogPost = lazy(() => import("./pages/BlogPost"));
+const Features = lazy(() => import("./pages/Features"));
+const Integrations = lazy(() => import("./pages/Integrations"));
+const Changelog = lazy(() => import("./pages/Changelog"));
+const Roadmap = lazy(() => import("./pages/Roadmap"));
+const Docs = lazy(() => import("./pages/Docs"));
+const ApiReference = lazy(() => import("./pages/ApiReference"));
+const Community = lazy(() => import("./pages/Community"));
+const Tutorials = lazy(() => import("./pages/Tutorials"));
+const About = lazy(() => import("./pages/About"));
+const Careers = lazy(() => import("./pages/Careers"));
+const Contact = lazy(() => import("./pages/Contact"));
+const Partners = lazy(() => import("./pages/Partners"));
+const Privacy = lazy(() => import("./pages/Privacy"));
+const Terms = lazy(() => import("./pages/Terms"));
+const CookiePolicy = lazy(() => import("./pages/CookiePolicy"));
+const License = lazy(() => import("./pages/License"));
+const CompareZapierN8n = lazy(() => import("./pages/CompareZapierN8n"));
+const UseCaseSocialMediaAgents = lazy(() => import("./pages/UseCaseSocialMediaAgents"));
+const UseCaseSalesLeadAutomation = lazy(() => import("./pages/UseCaseSalesLeadAutomation"));
+
+const PageFallback = () => (
+  <div className="min-h-screen flex items-center justify-center bg-background text-muted-foreground">
+    <div className="w-6 h-6 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+  </div>
+);
 
 const queryClient = new QueryClient();
 
@@ -54,6 +62,7 @@ const App = () => (
             <Toaster />
             <Sonner />
             <BrowserRouter>
+              <Suspense fallback={<PageFallback />}>
               <Routes>
                 <Route path="/" element={<Index />} />
                 <Route path="/pricing" element={<Pricing />} />
@@ -164,6 +173,7 @@ const App = () => (
                 {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
                 <Route path="*" element={<NotFound />} />
               </Routes>
+              </Suspense>
             </BrowserRouter>
           </ErrorBoundary>
         </TooltipProvider>

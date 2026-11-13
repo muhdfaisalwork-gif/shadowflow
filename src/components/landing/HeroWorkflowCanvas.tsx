@@ -28,6 +28,7 @@ export function HeroWorkflowCanvas() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [hoveredNode, setHoveredNode] = useState<string | null>(null);
+  const hoveredNodeRef = useRef<string | null>(null);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -62,6 +63,7 @@ export function HeroWorkflowCanvas() {
     const handleMouseLeave = () => {
       mouseX = -1000;
       mouseY = -1000;
+      hoveredNodeRef.current = null;
       setHoveredNode(null);
     };
 
@@ -168,7 +170,8 @@ export function HeroWorkflowCanvas() {
           node.y += (targetY - node.y) * 0.05;
         }
       }
-      if (currentHover !== hoveredNode) {
+      if (currentHover !== hoveredNodeRef.current) {
+        hoveredNodeRef.current = currentHover;
         setHoveredNode(currentHover);
       }
 
