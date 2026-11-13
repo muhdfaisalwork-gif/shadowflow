@@ -8,15 +8,8 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import {
   Search,
-  Zap,
   ArrowRight,
-  Bot,
-  Database,
-  MessageSquare,
-  Cloud,
   Code2,
-  Workflow,
-  Sparkles,
 } from "lucide-react";
 
 interface IntegrationItem {
@@ -111,6 +104,7 @@ export default function Integrations() {
                 <button
                   key={cat}
                   type="button"
+                  aria-pressed={selectedCategory === cat}
                   onClick={() => setSelectedCategory(cat)}
                   className={`text-xs px-3.5 py-1.5 rounded-full font-medium transition-colors ${
                     selectedCategory === cat
@@ -124,8 +118,10 @@ export default function Integrations() {
             </div>
 
             <div className="relative w-full sm:w-72">
-              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
               <Input
+                type="search"
+                aria-label="Search integrations"
                 placeholder="Search integrations..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
@@ -175,7 +171,7 @@ export default function Integrations() {
           {/* Custom Connector Callout */}
           <div className="p-8 rounded-2xl bg-secondary/40 border border-border flex flex-col md:flex-row items-center justify-between gap-6">
             <div>
-              <h3 className="text-lg font-bold mb-1">Need a custom private integration?</h3>
+              <h2 className="text-lg font-bold mb-1">Need a custom private integration?</h2>
               <p className="text-xs text-muted-foreground max-w-xl">
                 Shadow Flow features a zero-dependency TypeScript node SDK. You can write custom private nodes in under 50 lines of code or use our universal HTTP Webhook & MCP connector.
               </p>
