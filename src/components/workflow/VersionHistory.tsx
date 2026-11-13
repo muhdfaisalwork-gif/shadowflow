@@ -1,4 +1,4 @@
-import { type FC, useState, useEffect } from 'react';
+import { type FC, useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, History, RotateCcw, Trash2, Clock, User } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -50,13 +50,7 @@ const VersionHistory: FC<VersionHistoryProps> = ({
   const [versionToDelete, setVersionToDelete] = useState<Version | null>(null);
   const { toast } = useToast();
 
-  useEffect(() => {
-    if (isOpen && workflowId) {
-      fetchVersions();
-    }
-  }, [isOpen, workflowId]);
-
-  const fetchVersions = async () => {
+  const fetchVersions = useCallback(async () => {
     if (!workflowId) return;
     
     setIsLoading(true);
@@ -77,7 +71,13 @@ const VersionHistory: FC<VersionHistoryProps> = ({
       setVersions(data || []);
     }
     setIsLoading(false);
-  };
+  }, [workflowId, toast]);
+
+  useEffect(() => {
+    if (isOpen && workflowId) {
+      fetchVersions();
+    }
+  }, [isOpen, workflowId, fetchVersions]);
 
   const handleRestore = (version: Version) => {
     const nodes = Array.isArray(version.nodes) 

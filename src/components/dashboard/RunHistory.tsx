@@ -1,4 +1,4 @@
-import { type FC, useState, useEffect } from 'react';
+import { type FC, useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   CheckCircle, XCircle, Clock, Play, Loader2, ChevronDown, ChevronUp,
@@ -37,11 +37,7 @@ const RunHistory: FC = () => {
   const [showAll, setShowAll] = useState(false);
   const { user } = useAuth();
 
-  useEffect(() => {
-    if (user) fetchRuns();
-  }, [user]);
-
-  const fetchRuns = async () => {
+  const fetchRuns = useCallback(async () => {
     if (!user) return;
     setIsLoading(true);
 
@@ -74,7 +70,11 @@ const RunHistory: FC = () => {
       })));
     }
     setIsLoading(false);
-  };
+  }, [user]);
+
+  useEffect(() => {
+    if (user) fetchRuns();
+  }, [user, fetchRuns]);
 
   const displayedRuns = showAll ? runs : runs.slice(0, 5);
 

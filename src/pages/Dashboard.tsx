@@ -1,4 +1,4 @@
-import { type FC, useState, useEffect, useMemo } from 'react';
+import { type FC, useState, useEffect, useMemo, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { 
@@ -59,18 +59,7 @@ const Dashboard: FC = () => {
     navigate(`${linkPrefix}/workflow/new?prompt=${encodeURIComponent(text)}`);
   };
 
-  useEffect(() => {
-    if (demo) {
-      setWorkflows(demo.workflows.map(w => ({
-        id: w.id, name: w.name, description: w.description, is_active: w.is_active, updated_at: w.updated_at, nodes: w.nodes,
-      })));
-      setIsLoading(false);
-      return;
-    }
-    fetchWorkflows();
-  }, [user, demo]);
-
-  const fetchWorkflows = async () => {
+  const fetchWorkflows = useCallback(async () => {
     if (!user) return;
     setIsLoading(true);
 
@@ -99,7 +88,18 @@ const Dashboard: FC = () => {
       setWorkflows(data || []);
     }
     setIsLoading(false);
-  };
+  }, [user, toast]);
+
+  useEffect(() => {
+    if (demo) {
+      setWorkflows(demo.workflows.map(w => ({
+        id: w.id, name: w.name, description: w.description, is_active: w.is_active, updated_at: w.updated_at, nodes: w.nodes,
+      })));
+      setIsLoading(false);
+      return;
+    }
+    fetchWorkflows();
+  }, [user, demo, fetchWorkflows]);
 
   const handleSignOut = async () => { if (demo) { navigate('/'); return; } await signOut(); navigate('/'); };
 

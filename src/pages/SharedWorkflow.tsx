@@ -1,4 +1,4 @@
-import { type FC, useState, useEffect } from 'react';
+import { type FC, useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Zap, Download, ArrowLeft, User, Calendar, Loader2 } from 'lucide-react';
@@ -30,13 +30,7 @@ const SharedWorkflow: FC = () => {
   const [isImporting, setIsImporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (token) {
-      fetchWorkflow();
-    }
-  }, [token]);
-
-  const fetchWorkflow = async () => {
+  const fetchWorkflow = useCallback(async () => {
     setIsLoading(true);
     setError(null);
 
@@ -53,7 +47,13 @@ const SharedWorkflow: FC = () => {
       setWorkflow(data);
     }
     setIsLoading(false);
-  };
+  }, [token]);
+
+  useEffect(() => {
+    if (token) {
+      fetchWorkflow();
+    }
+  }, [token, fetchWorkflow]);
 
   const handleImport = async () => {
     if (!workflow || !user) {
