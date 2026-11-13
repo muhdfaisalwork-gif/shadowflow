@@ -1212,14 +1212,19 @@ export function serializeToN8nJson(
   nodes: WorkflowNode[],
   edges: WorkflowEdge[]
 ): string {
-  const n8nNodes = nodes.map((node) => ({
-    id: node.id.replace(/^n8n-/, ''),
-    name: node.data.label,
-    type: node.data.n8nType || mapFlowTypeToN8n(node.data.type),
-    typeVersion: Number(node.data.config?.n8nTypeVersion || 1),
-    position: [Math.round(node.position.x), Math.round(node.position.y)] as [number, number],
-    parameters: { ...(node.data.config || {}) },
-  }));
+  const n8nNodes = nodes.map((node) => {
+    const rawConfig = { ...(node.data.config || {}) };
+    const { n8nType: _n8nType, n8nTypeVersion, ...cleanParams } = rawConfig;
+    void _n8nType;
+    return {
+      id: node.id.replace(/^n8n-/, ''),
+      name: node.data.label,
+      type: node.data.n8nType || mapFlowTypeToN8n(node.data.type),
+      typeVersion: Number(n8nTypeVersion || 1),
+      position: [Math.round(node.position.x), Math.round(node.position.y)] as [number, number],
+      parameters: cleanParams,
+    };
+  });
 
   const connections: RawN8nConnections = {};
 
@@ -1230,7 +1235,7 @@ export function serializeToN8nJson(
 
     const sourceName = sourceNode.data.label;
     if (!connections[sourceName]) {
-      connections[sourceName] = { main: [[]] };
+      connections[sourceName] = {};
     }
 
     const connType = (edge.data?.connectionType as string) || 'main';

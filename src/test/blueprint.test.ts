@@ -181,6 +181,19 @@ describe('1. Universal n8n Importer & Multi-Handle Topology Engine (n8nAdapter.t
     expect(layouted[0].position.x).toBe(100);
     expect(layouted[1].position.x).toBe(420); // 100 + 1 * 320
     expect(layouted[2].position.x).toBe(740); // 100 + 2 * 320
+
+    // Verify serializeToN8nJson strips internal metadata and omits empty main[] on ai_* edges
+    const aiFlow = OFFICIAL_N8N_TEST_FLOWS.find((f) => f.id === 'n8n-langchain-ai-agent-tools')!;
+    const parsedAiFlow = parseN8nWorkflow(aiFlow.n8nJson);
+    const exported = JSON.parse(serializeToN8nJson(parsedAiFlow.name, parsedAiFlow.nodes, parsedAiFlow.edges));
+    for (const n of exported.nodes) {
+      expect(n.parameters).not.toHaveProperty('n8nType');
+      expect(n.parameters).not.toHaveProperty('n8nTypeVersion');
+    }
+    const modelConn = exported.connections['OpenAI Chat Model'];
+    expect(modelConn).toBeDefined();
+    expect(modelConn).not.toHaveProperty('main');
+    expect(modelConn).toHaveProperty('ai_languageModel');
   });
 });
 
