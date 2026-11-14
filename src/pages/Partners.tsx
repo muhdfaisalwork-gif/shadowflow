@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { Link } from "react-router-dom";
 import { Header } from "@/components/landing/Header";
 import { Footer } from "@/components/landing/Footer";
 import { Button } from "@/components/ui/button";
@@ -9,12 +8,7 @@ import { Input } from "@/components/ui/input";
 import {
   Handshake,
   CheckCircle2,
-  Building2,
-  Cpu,
-  Layers,
-  Sparkles,
   ArrowRight,
-  Send,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -88,7 +82,7 @@ export default function Partners() {
           {/* Header */}
           <div className="text-center max-w-3xl mx-auto mb-16">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 border border-primary/20 text-primary text-xs font-semibold mb-4">
-              <Handshake className="w-3.5 h-3.5" />
+              <Handshake className="w-3.5 h-3.5" aria-hidden="true" />
               Global Partner Network
             </div>
             <h1 className="text-4xl sm:text-5xl font-extrabold tracking-tight mb-4">
@@ -120,7 +114,7 @@ export default function Partners() {
                     <ul className="space-y-2 text-xs">
                       {tier.benefits.map((b, idx) => (
                         <li key={idx} className="flex items-start gap-2 text-foreground/80">
-                          <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
+                          <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" aria-hidden="true" />
                           <span>{b}</span>
                         </li>
                       ))}
@@ -142,7 +136,7 @@ export default function Partners() {
 
             {submitted ? (
               <div className="py-8 text-center space-y-3">
-                <CheckCircle2 className="w-12 h-12 text-emerald-500 mx-auto" />
+                <CheckCircle2 className="w-12 h-12 text-emerald-500 mx-auto" aria-hidden="true" />
                 <h3 className="text-lg font-bold">Application Received!</h3>
                 <p className="text-xs text-muted-foreground">
                   Our alliance director will review your submission and contact you directly.
@@ -152,10 +146,14 @@ export default function Partners() {
               <form onSubmit={handleSubmit} className="space-y-4">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block mb-1">
+                    <label
+                      htmlFor="partner-company"
+                      className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block mb-1"
+                    >
                       Company Name *
                     </label>
                     <Input
+                      id="partner-company"
                       placeholder="e.g. Acme Cloud Systems"
                       value={partnerForm.company}
                       onChange={(e) => setPartnerForm({ ...partnerForm, company: e.target.value })}
@@ -163,10 +161,14 @@ export default function Partners() {
                     />
                   </div>
                   <div>
-                    <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block mb-1">
+                    <label
+                      htmlFor="partner-website"
+                      className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block mb-1"
+                    >
                       Company Website
                     </label>
                     <Input
+                      id="partner-website"
                       placeholder="https://company.com"
                       value={partnerForm.website}
                       onChange={(e) => setPartnerForm({ ...partnerForm, website: e.target.value })}
@@ -176,20 +178,28 @@ export default function Partners() {
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block mb-1">
+                    <label
+                      htmlFor="partner-contact-name"
+                      className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block mb-1"
+                    >
                       Contact Name
                     </label>
                     <Input
+                      id="partner-contact-name"
                       placeholder="e.g. Taylor Smith"
                       value={partnerForm.contactName}
                       onChange={(e) => setPartnerForm({ ...partnerForm, contactName: e.target.value })}
                     />
                   </div>
                   <div>
-                    <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block mb-1">
+                    <label
+                      htmlFor="partner-email"
+                      className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block mb-1"
+                    >
                       Corporate Email *
                     </label>
                     <Input
+                      id="partner-email"
                       type="email"
                       placeholder="taylor@company.com"
                       value={partnerForm.email}
@@ -200,10 +210,14 @@ export default function Partners() {
                 </div>
 
                 <div>
-                  <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block mb-1">
+                  <label
+                    htmlFor="partner-tier"
+                    className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block mb-1"
+                  >
                     Partner Category
                   </label>
                   <select
+                    id="partner-tier"
                     value={partnerForm.tier}
                     onChange={(e) => setPartnerForm({ ...partnerForm, tier: e.target.value })}
                     className="w-full h-10 rounded-md border border-input bg-background px-3 text-xs"
@@ -215,7 +229,7 @@ export default function Partners() {
                 </div>
 
                 <Button type="submit" disabled={isSubmitting} className="w-full gap-2 font-semibold h-11">
-                  {isSubmitting ? "Submitting Application..." : <>Submit Partner Application <ArrowRight className="w-4 h-4" /></>}
+                  {isSubmitting ? "Submitting Application..." : <>Submit Partner Application <ArrowRight className="w-4 h-4" aria-hidden="true" /></>}
                 </Button>
               </form>
             )}
