@@ -1,11 +1,10 @@
 import { useState } from "react";
-import { Link } from "react-router-dom";
 import { Header } from "@/components/landing/Header";
 import { Footer } from "@/components/landing/Footer";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { ThumbsUp, Compass, Plus, Sparkles, MessageSquare, CheckCircle2 } from "lucide-react";
+import { ThumbsUp, Compass, MessageSquare } from "lucide-react";
 import { toast } from "sonner";
 
 interface RoadmapItem {
@@ -147,10 +146,10 @@ export default function Roadmap() {
             {/* Column 1: In Progress */}
             <div className="space-y-4">
               <div className="flex items-center justify-between pb-2 border-b border-border">
-                <div className="flex items-center gap-2 font-bold text-base">
-                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
+                <h2 className="flex items-center gap-2 font-bold text-base">
+                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" aria-hidden="true" />
                   Now (In Progress)
-                </div>
+                </h2>
                 <Badge variant="secondary" className="text-xs">
                   {columns.now.length}
                 </Badge>
@@ -176,14 +175,17 @@ export default function Roadmap() {
                     <CardContent className="p-4 pt-0">
                       <div className="pt-3 border-t border-border flex items-center justify-between">
                         <Button
+                          type="button"
                           variant="outline"
                           size="sm"
+                          aria-pressed={userVoted.has(item.id)}
+                          aria-label={`Upvote ${item.title} (${item.votes} votes)`}
                           onClick={() => handleVote("now", item.id)}
                           className={`text-xs h-7 gap-1.5 ${
                             userVoted.has(item.id) ? "border-primary text-primary bg-primary/10" : ""
                           }`}
                         >
-                          <ThumbsUp className="w-3 h-3" />
+                          <ThumbsUp className="w-3 h-3" aria-hidden="true" />
                           <span>{item.votes}</span>
                         </Button>
                       </div>
@@ -196,10 +198,10 @@ export default function Roadmap() {
             {/* Column 2: Next */}
             <div className="space-y-4">
               <div className="flex items-center justify-between pb-2 border-b border-border">
-                <div className="flex items-center gap-2 font-bold text-base">
-                  <span className="w-2.5 h-2.5 rounded-full bg-blue-500" />
+                <h2 className="flex items-center gap-2 font-bold text-base">
+                  <span className="w-2.5 h-2.5 rounded-full bg-blue-500" aria-hidden="true" />
                   Next (Q1 2027)
-                </div>
+                </h2>
                 <Badge variant="secondary" className="text-xs">
                   {columns.next.length}
                 </Badge>
@@ -225,14 +227,17 @@ export default function Roadmap() {
                     <CardContent className="p-4 pt-0">
                       <div className="pt-3 border-t border-border flex items-center justify-between">
                         <Button
+                          type="button"
                           variant="outline"
                           size="sm"
+                          aria-pressed={userVoted.has(item.id)}
+                          aria-label={`Upvote ${item.title} (${item.votes} votes)`}
                           onClick={() => handleVote("next", item.id)}
                           className={`text-xs h-7 gap-1.5 ${
                             userVoted.has(item.id) ? "border-primary text-primary bg-primary/10" : ""
                           }`}
                         >
-                          <ThumbsUp className="w-3 h-3" />
+                          <ThumbsUp className="w-3 h-3" aria-hidden="true" />
                           <span>{item.votes}</span>
                         </Button>
                       </div>
@@ -245,10 +250,10 @@ export default function Roadmap() {
             {/* Column 3: Future */}
             <div className="space-y-4">
               <div className="flex items-center justify-between pb-2 border-b border-border">
-                <div className="flex items-center gap-2 font-bold text-base">
-                  <span className="w-2.5 h-2.5 rounded-full bg-purple-500" />
+                <h2 className="flex items-center gap-2 font-bold text-base">
+                  <span className="w-2.5 h-2.5 rounded-full bg-purple-500" aria-hidden="true" />
                   Future Vision
-                </div>
+                </h2>
                 <Badge variant="secondary" className="text-xs">
                   {columns.future.length}
                 </Badge>
@@ -274,14 +279,17 @@ export default function Roadmap() {
                     <CardContent className="p-4 pt-0">
                       <div className="pt-3 border-t border-border flex items-center justify-between">
                         <Button
+                          type="button"
                           variant="outline"
                           size="sm"
+                          aria-pressed={userVoted.has(item.id)}
+                          aria-label={`Upvote ${item.title} (${item.votes} votes)`}
                           onClick={() => handleVote("future", item.id)}
                           className={`text-xs h-7 gap-1.5 ${
                             userVoted.has(item.id) ? "border-primary text-primary bg-primary/10" : ""
                           }`}
                         >
-                          <ThumbsUp className="w-3 h-3" />
+                          <ThumbsUp className="w-3 h-3" aria-hidden="true" />
                           <span>{item.votes}</span>
                         </Button>
                       </div>
@@ -295,7 +303,7 @@ export default function Roadmap() {
           {/* Suggest a feature banner */}
           <div className="p-8 rounded-2xl bg-secondary/40 border border-border flex flex-col md:flex-row items-center justify-between gap-6">
             <div>
-              <h3 className="text-lg font-bold mb-1">Have an idea or feature request?</h3>
+              <h2 className="text-lg font-bold mb-1">Have an idea or feature request?</h2>
               <p className="text-xs text-muted-foreground max-w-xl">
                 Open a GitHub Discussion or RFC (Request For Comments) to discuss architectural proposals directly with core maintainers.
               </p>
