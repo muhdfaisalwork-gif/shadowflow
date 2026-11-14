@@ -10,7 +10,6 @@ import {
   GitBranch,
   Cloud,
   ChevronDown,
-  Terminal,
   CheckCircle2,
   ArrowRight,
 } from "lucide-react";
@@ -271,7 +270,7 @@ function InteractiveFeatureCard({ feature }: { feature: FeatureItem }) {
           <div
             className={`w-12 h-12 rounded-xl bg-gradient-to-br ${feature.gradient} bg-opacity-20 flex items-center justify-center text-white shadow-md`}
           >
-            <Icon className="w-6 h-6" />
+            <Icon className="w-6 h-6" aria-hidden="true" />
           </div>
 
           <Badge variant="outline" className="text-[11px] font-mono bg-background/80">
@@ -294,7 +293,7 @@ function InteractiveFeatureCard({ feature }: { feature: FeatureItem }) {
             <div className="text-base font-bold text-foreground font-mono">{feature.metric}</div>
           </div>
           <span className="text-xs text-primary font-semibold flex items-center gap-1">
-            Verified <CheckCircle2 className="w-3.5 h-3.5" />
+            Verified <CheckCircle2 className="w-3.5 h-3.5" aria-hidden="true" />
           </span>
         </div>
       </div>
@@ -302,11 +301,15 @@ function InteractiveFeatureCard({ feature }: { feature: FeatureItem }) {
       {/* Expandable Technical Drawer */}
       <div className="border-t border-border/60 bg-muted/20 relative z-10">
         <button
+          type="button"
+          aria-expanded={isExpanded}
+          aria-controls={`feature-details-${feature.id}`}
           onClick={() => setIsExpanded(!isExpanded)}
           className="w-full px-6 py-3 flex items-center justify-between text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors"
         >
           <span>{isExpanded ? "Hide Technical Specifications" : "View Technical Implementation"}</span>
           <ChevronDown
+            aria-hidden="true"
             className={`w-4 h-4 transition-transform duration-200 ${
               isExpanded ? "rotate-180 text-primary" : ""
             }`}
@@ -316,6 +319,7 @@ function InteractiveFeatureCard({ feature }: { feature: FeatureItem }) {
         <AnimatePresence>
           {isExpanded && (
             <motion.div
+              id={`feature-details-${feature.id}`}
               initial={{ height: 0, opacity: 0 }}
               animate={{ height: "auto", opacity: 1 }}
               exit={{ height: 0, opacity: 0 }}
@@ -365,7 +369,7 @@ export function FeaturesSection() {
         {/* Header */}
         <div className="text-center max-w-3xl mx-auto mb-16">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 border border-primary/25 text-primary text-xs font-semibold mb-4">
-            <Zap className="w-3.5 h-3.5" />
+            <Zap className="w-3.5 h-3.5" aria-hidden="true" />
             Core Architecture & Capabilities
           </div>
           <h2 className="text-3xl sm:text-4xl lg:text-5xl font-extrabold tracking-tight mb-4">
@@ -390,7 +394,7 @@ export function FeaturesSection() {
           </p>
           <Button asChild variant="outline" className="gap-2 font-semibold">
             <Link to="/docs">
-              Read Developer Documentation <ArrowRight className="w-4 h-4" />
+              Read Developer Documentation <ArrowRight className="w-4 h-4" aria-hidden="true" />
             </Link>
           </Button>
         </div>
