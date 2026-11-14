@@ -138,11 +138,11 @@ const Login: FC = () => {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background p-4">
+    <main className="min-h-screen flex items-center justify-center bg-background p-4">
       {/* Background Effects */}
-      <div className="absolute inset-0 bg-grid opacity-30" />
-      <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-electric/10 rounded-full blur-3xl" />
-      <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-neon/10 rounded-full blur-3xl" />
+      <div className="absolute inset-0 bg-grid opacity-30" aria-hidden="true" />
+      <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-electric/10 rounded-full blur-3xl" aria-hidden="true" />
+      <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-neon/10 rounded-full blur-3xl" aria-hidden="true" />
 
       <motion.div
         initial={{ opacity: 0, y: 20 }}
@@ -153,7 +153,7 @@ const Login: FC = () => {
           to="/"
           className="inline-flex items-center gap-2 text-muted-foreground hover:text-foreground mb-6 transition-colors"
         >
-          <ArrowLeft className="w-4 h-4" />
+          <ArrowLeft className="w-4 h-4" aria-hidden="true" />
           Back to home
         </Link>
 
@@ -164,7 +164,7 @@ const Login: FC = () => {
               <CardHeader className="text-center">
                 <div className="flex justify-center mb-4">
                   <div className="p-3 rounded-xl gradient-primary">
-                    <Shield className="w-8 h-8 text-white" />
+                    <Shield className="w-8 h-8 text-white" aria-hidden="true" />
                   </div>
                 </div>
                 <CardTitle className="text-2xl">Two-Factor Authentication</CardTitle>
@@ -184,10 +184,11 @@ const Login: FC = () => {
                       {tfaMode === 'backup' && 'Backup Recovery Code'}
                     </Label>
                     <div className="relative">
-                      <KeyRound className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                      <KeyRound className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" aria-hidden="true" />
                       <Input
                         id="tfaCode"
                         type="text"
+                        autoComplete="one-time-code"
                         autoFocus
                         placeholder={tfaMode === 'backup' ? 'A1B2C3D4' : '000000'}
                         value={twoFactorCode}
@@ -217,7 +218,7 @@ const Login: FC = () => {
                       >
                         {isResending ? (
                           <>
-                            <Loader2 className="w-3 h-3 mr-1.5 animate-spin" />
+                            <Loader2 className="w-3 h-3 mr-1.5 animate-spin" aria-hidden="true" />
                             Resending code...
                           </>
                         ) : (
@@ -281,7 +282,7 @@ const Login: FC = () => {
                   >
                     {isVerifying2FA ? (
                       <>
-                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" aria-hidden="true" />
                         Verifying...
                       </>
                     ) : (
@@ -306,7 +307,7 @@ const Login: FC = () => {
               <CardHeader className="text-center">
                 <div className="flex justify-center mb-4">
                   <div className="p-3 rounded-xl gradient-primary">
-                    <Zap className="w-8 h-8 text-white" />
+                    <Zap className="w-8 h-8 text-white" aria-hidden="true" />
                   </div>
                 </div>
                 <CardTitle className="text-2xl">Welcome back</CardTitle>
@@ -320,10 +321,11 @@ const Login: FC = () => {
                   <div className="space-y-2">
                     <Label htmlFor="email">Email</Label>
                     <div className="relative">
-                      <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                      <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" aria-hidden="true" />
                       <Input
                         id="email"
                         type="email"
+                        autoComplete="email"
                         placeholder="you@example.com"
                         value={email}
                         onChange={(e) => setEmail(e.target.value)}
@@ -336,10 +338,11 @@ const Login: FC = () => {
                   <div className="space-y-2">
                     <Label htmlFor="password">Password</Label>
                     <div className="relative">
-                      <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                      <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" aria-hidden="true" />
                       <Input
                         id="password"
                         type="password"
+                        autoComplete="current-password"
                         placeholder="••••••••"
                         value={password}
                         onChange={(e) => setPassword(e.target.value)}
@@ -358,7 +361,7 @@ const Login: FC = () => {
                   >
                     {isLoading ? (
                       <>
-                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" aria-hidden="true" />
                         Signing in...
                       </>
                     ) : (
@@ -383,9 +386,9 @@ const Login: FC = () => {
                     disabled={isLoading || isGoogleLoading}
                   >
                     {isGoogleLoading ? (
-                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" aria-hidden="true" />
                     ) : (
-                      <svg className="w-4 h-4 mr-2" viewBox="0 0 24 24">
+                      <svg className="w-4 h-4 mr-2" viewBox="0 0 24 24" aria-hidden="true">
                         <path
                           fill="currentColor"
                           d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
@@ -424,7 +427,7 @@ const Login: FC = () => {
           )}
         </Card>
       </motion.div>
-    </div>
+    </main>
   );
 };
 
