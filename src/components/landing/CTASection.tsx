@@ -1,5 +1,5 @@
 import { motion } from "framer-motion";
-import { ArrowRight, Zap, Github, Sparkles, Monitor, CheckCircle2 } from "lucide-react";
+import { ArrowRight, Zap, Github, Monitor, CheckCircle2 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 
@@ -11,7 +11,7 @@ export function CTASection() {
       <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[400px] bg-electric/15 rounded-full blur-[140px] pointer-events-none" />
 
       {/* Converging Circuit Graphic (SVG) */}
-      <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-40">
+      <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-40" aria-hidden="true">
         <svg className="w-full max-w-4xl h-64" viewBox="0 0 800 240" fill="none">
           {/* Left Converging Channels */}
           <motion.path
@@ -128,9 +128,9 @@ export function CTASection() {
               className="gradient-primary text-white font-semibold text-base px-8 h-12 gap-2 shadow-xl shadow-primary/25 hover:scale-[1.02] active:scale-[0.98] transition-transform"
             >
               <Link to="/signup">
-                <Zap className="w-5 h-5" />
+                <Zap className="w-5 h-5" aria-hidden="true" />
                 Start Building Free
-                <ArrowRight className="w-5 h-5 ml-1" />
+                <ArrowRight className="w-5 h-5 ml-1" aria-hidden="true" />
               </Link>
             </Button>
 
@@ -141,7 +141,7 @@ export function CTASection() {
               className="h-12 px-6 text-base font-semibold border-border/80 hover:bg-muted/60 transition-colors"
             >
               <Link to="/demo">
-                <Monitor className="w-5 h-5 text-primary mr-1" />
+                <Monitor className="w-5 h-5 text-primary mr-1" aria-hidden="true" />
                 Launch Live Canvas
               </Link>
             </Button>
@@ -157,7 +157,7 @@ export function CTASection() {
                 target="_blank"
                 rel="noopener noreferrer"
               >
-                <Github className="w-5 h-5 mr-2" />
+                <Github className="w-5 h-5 mr-2" aria-hidden="true" />
                 Star on GitHub
               </a>
             </Button>
@@ -166,15 +166,15 @@ export function CTASection() {
           {/* Trust Guarantees */}
           <div className="pt-8 border-t border-border/60 flex flex-wrap justify-center gap-6 sm:gap-10 text-xs font-mono text-muted-foreground">
             <span className="flex items-center gap-1.5 text-foreground">
-              <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+              <CheckCircle2 className="w-4 h-4 text-emerald-400" aria-hidden="true" />
               No credit card required
             </span>
             <span className="flex items-center gap-1.5 text-foreground">
-              <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+              <CheckCircle2 className="w-4 h-4 text-emerald-400" aria-hidden="true" />
               100% Permissive Apache 2.0
             </span>
             <span className="flex items-center gap-1.5 text-foreground">
-              <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+              <CheckCircle2 className="w-4 h-4 text-emerald-400" aria-hidden="true" />
               Zero telemetry tracking
             </span>
           </div>
