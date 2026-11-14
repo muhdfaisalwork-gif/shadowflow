@@ -7,12 +7,7 @@ import {
   Github,
   MessageCircle,
   Twitter,
-  Heart,
-  Code2,
   Users,
-  Sparkles,
-  BookOpen,
-  ArrowRight,
   ExternalLink,
 } from "lucide-react";
 
@@ -72,7 +67,7 @@ export default function Community() {
           {/* Header */}
           <div className="text-center max-w-3xl mx-auto mb-16">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 border border-primary/20 text-primary text-xs font-semibold mb-4">
-              <Users className="w-3.5 h-3.5" />
+              <Users className="w-3.5 h-3.5" aria-hidden="true" />
               Global Open-Source Collective
             </div>
             <h1 className="text-4xl sm:text-5xl font-extrabold tracking-tight mb-4">
@@ -90,7 +85,7 @@ export default function Community() {
                 <CardHeader className="space-y-3">
                   <div className="flex items-center justify-between">
                     <div className="w-12 h-12 rounded-xl bg-primary/15 border border-primary/30 flex items-center justify-center text-primary">
-                      <c.icon className="w-6 h-6" />
+                      <c.icon className="w-6 h-6" aria-hidden="true" />
                     </div>
                     <Badge variant="secondary" className="text-[10px]">
                       {c.badge}
@@ -104,7 +99,7 @@ export default function Community() {
                 <CardContent className="pt-0">
                   <Button asChild className="w-full text-xs font-semibold gap-2">
                     <a href={c.href} target="_blank" rel="noopener noreferrer">
-                      {c.actionText} <ExternalLink className="w-3.5 h-3.5" />
+                      {c.actionText} <ExternalLink className="w-3.5 h-3.5" aria-hidden="true" />
                     </a>
                   </Button>
                 </CardContent>
