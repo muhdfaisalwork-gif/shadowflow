@@ -1,7 +1,6 @@
 import { Header } from "@/components/landing/Header";
 import { Footer } from "@/components/landing/Footer";
-import { Badge } from "@/components/ui/badge";
-import { ShieldCheck, Lock, CheckCircle2 } from "lucide-react";
+import { ShieldCheck, Lock } from "lucide-react";
 
 export default function Privacy() {
   return (
@@ -13,7 +12,7 @@ export default function Privacy() {
           {/* Header */}
           <div className="mb-12 space-y-3">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-semibold">
-              <ShieldCheck className="w-3.5 h-3.5" />
+              <ShieldCheck className="w-3.5 h-3.5" aria-hidden="true" />
               Privacy-First Architecture
             </div>
             <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight">Privacy Policy</h1>
@@ -25,7 +24,7 @@ export default function Privacy() {
           {/* Privacy Callout */}
           <div className="p-6 rounded-2xl bg-emerald-500/10 border border-emerald-500/25 mb-10 space-y-2">
             <div className="flex items-center gap-2 text-emerald-400 font-bold text-sm">
-              <Lock className="w-4 h-4" />
+              <Lock className="w-4 h-4" aria-hidden="true" />
               The Shadow Flow Zero-Telemetry Guarantee
             </div>
             <p className="text-xs text-muted-foreground leading-relaxed">

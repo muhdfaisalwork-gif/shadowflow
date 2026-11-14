@@ -1,7 +1,6 @@
 import { Header } from "@/components/landing/Header";
 import { Footer } from "@/components/landing/Footer";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { ShieldCheck, Copy, CheckCircle2, XCircle, AlertCircle } from "lucide-react";
 import { toast } from "sonner";
@@ -69,7 +68,7 @@ export default function License() {
           {/* Header */}
           <div className="mb-12 space-y-3">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-semibold">
-              <ShieldCheck className="w-3.5 h-3.5" />
+              <ShieldCheck className="w-3.5 h-3.5" aria-hidden="true" />
               OSI-Approved Open Source License
             </div>
             <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight">Apache License 2.0</h1>
@@ -84,7 +83,7 @@ export default function License() {
             <Card className="border-border bg-card/60">
               <CardContent className="p-5 space-y-2.5">
                 <div className="text-xs font-bold text-emerald-400 uppercase tracking-wider flex items-center gap-1.5">
-                  <CheckCircle2 className="w-4 h-4" /> Permissions
+                  <CheckCircle2 className="w-4 h-4" aria-hidden="true" /> Permissions
                 </div>
                 <ul className="space-y-1.5 text-xs text-foreground/80">
                   <li>✔ Commercial use</li>
@@ -101,7 +100,7 @@ export default function License() {
             <Card className="border-border bg-card/60">
               <CardContent className="p-5 space-y-2.5">
                 <div className="text-xs font-bold text-blue-400 uppercase tracking-wider flex items-center gap-1.5">
-                  <AlertCircle className="w-4 h-4" /> Conditions
+                  <AlertCircle className="w-4 h-4" aria-hidden="true" /> Conditions
                 </div>
                 <ul className="space-y-1.5 text-xs text-foreground/80">
                   <li>ℹ License and copyright notice</li>
@@ -114,7 +113,7 @@ export default function License() {
             <Card className="border-border bg-card/60">
               <CardContent className="p-5 space-y-2.5">
                 <div className="text-xs font-bold text-destructive uppercase tracking-wider flex items-center gap-1.5">
-                  <XCircle className="w-4 h-4" /> Limitations
+                  <XCircle className="w-4 h-4" aria-hidden="true" /> Limitations
                 </div>
                 <ul className="space-y-1.5 text-xs text-foreground/80">
                   <li>✖ No trademark rights</li>
@@ -128,7 +127,7 @@ export default function License() {
           {/* Full Text */}
           <div className="space-y-3">
             <div className="flex items-center justify-between">
-              <h3 className="font-bold text-sm text-foreground">Official License Full Text</h3>
+              <h2 className="font-bold text-sm text-foreground">Official License Full Text</h2>
               <Button
                 variant="outline"
                 size="sm"
@@ -138,7 +137,7 @@ export default function License() {
                   toast.success("License text copied to clipboard!");
                 }}
               >
-                <Copy className="w-3.5 h-3.5" /> Copy Text
+                <Copy className="w-3.5 h-3.5" aria-hidden="true" /> Copy Text
               </Button>
             </div>
 

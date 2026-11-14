@@ -1,7 +1,6 @@
 import { Header } from "@/components/landing/Header";
 import { Footer } from "@/components/landing/Footer";
-import { Badge } from "@/components/ui/badge";
-import { Cookie, CheckCircle2 } from "lucide-react";
+import { Cookie } from "lucide-react";
 
 export default function CookiePolicy() {
   return (
@@ -13,7 +12,7 @@ export default function CookiePolicy() {
           {/* Header */}
           <div className="mb-12 space-y-3">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 border border-primary/20 text-primary text-xs font-semibold">
-              <Cookie className="w-3.5 h-3.5" />
+              <Cookie className="w-3.5 h-3.5" aria-hidden="true" />
               Transparent Storage
             </div>
             <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight">Cookie Policy</h1>
@@ -38,13 +37,13 @@ export default function CookiePolicy() {
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
                 <div className="p-4 rounded-xl border border-border bg-card/60">
-                  <h4 className="font-bold text-sm text-foreground mb-1">Essential Authentication Cookies</h4>
+                  <h3 className="font-bold text-sm text-foreground mb-1">Essential Authentication Cookies</h3>
                   <p className="text-xs text-muted-foreground">
                     Cryptographic tokens required to keep you signed in securely and protect your workflows from cross-site request forgery (CSRF).
                   </p>
                 </div>
                 <div className="p-4 rounded-xl border border-border bg-card/60">
-                  <h4 className="font-bold text-sm text-foreground mb-1">Functional Preferences</h4>
+                  <h3 className="font-bold text-sm text-foreground mb-1">Functional Preferences</h3>
                   <p className="text-xs text-muted-foreground">
                     Stores your chosen UI theme (dark or light mode) and zoom/pan preferences on the canvas so you don't have to reset them every visit.
                   </p>

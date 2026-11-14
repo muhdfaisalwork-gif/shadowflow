@@ -1,6 +1,5 @@
 import { Header } from "@/components/landing/Header";
 import { Footer } from "@/components/landing/Footer";
-import { Badge } from "@/components/ui/badge";
 import { FileText } from "lucide-react";
 
 export default function Terms() {
@@ -13,7 +12,7 @@ export default function Terms() {
           {/* Header */}
           <div className="mb-12 space-y-3">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 border border-primary/20 text-primary text-xs font-semibold">
-              <FileText className="w-3.5 h-3.5" />
+              <FileText className="w-3.5 h-3.5" aria-hidden="true" />
               Legal Agreements
             </div>
             <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight">Terms of Service</h1>
