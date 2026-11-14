@@ -4,8 +4,8 @@ import { Header } from "@/components/landing/Header";
 import { Footer } from "@/components/landing/Footer";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent } from "@/components/ui/card";
-import { Terminal, Copy, Check, ExternalLink, Code2, Sparkles, BookOpen } from "lucide-react";
+import { Card } from "@/components/ui/card";
+import { Terminal, Copy, BookOpen } from "lucide-react";
 import { toast } from "sonner";
 
 interface Endpoint {
@@ -144,6 +144,8 @@ export default function ApiReference() {
               {endpoints.map((ep) => (
                 <button
                   key={ep.path}
+                  type="button"
+                  aria-pressed={selectedEndpoint.path === ep.path}
                   onClick={() => setSelectedEndpoint(ep)}
                   className={`w-full text-left p-3 rounded-xl border text-xs transition-all ${
                     selectedEndpoint.path === ep.path
@@ -186,7 +188,7 @@ export default function ApiReference() {
                   </code>
                 </div>
 
-                <h3 className="text-lg font-bold mb-2">{selectedEndpoint.title}</h3>
+                <h2 className="text-lg font-bold mb-2">{selectedEndpoint.title}</h2>
                 <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed mb-6">
                   {selectedEndpoint.description}
                 </p>
@@ -194,17 +196,17 @@ export default function ApiReference() {
                 {/* Parameters */}
                 {selectedEndpoint.parameters && (
                   <div className="mb-6">
-                    <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">
+                    <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">
                       Request Parameters
-                    </h4>
+                    </h3>
                     <div className="border border-border rounded-lg overflow-hidden text-xs">
                       <table className="w-full text-left">
                         <thead className="bg-muted/60 text-muted-foreground text-[10px] uppercase">
                           <tr>
-                            <th className="py-2.5 px-3">Field</th>
-                            <th className="py-2.5 px-3">Type</th>
-                            <th className="py-2.5 px-3">Required</th>
-                            <th className="py-2.5 px-3">Description</th>
+                            <th scope="col" className="py-2.5 px-3">Field</th>
+                            <th scope="col" className="py-2.5 px-3">Type</th>
+                            <th scope="col" className="py-2.5 px-3">Required</th>
+                            <th scope="col" className="py-2.5 px-3">Description</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-border font-mono text-[11px]">
@@ -233,15 +235,17 @@ export default function ApiReference() {
                   <div className="flex items-center justify-between text-xs text-muted-foreground">
                     <span className="font-semibold uppercase text-[10px] tracking-wider">Example Request (cURL)</span>
                     <Button
+                      type="button"
                       variant="ghost"
                       size="sm"
+                      aria-label="Copy cURL example"
                       className="h-6 text-xs gap-1"
                       onClick={() => {
                         navigator.clipboard.writeText(selectedEndpoint.curlExample);
                         toast.success("cURL snippet copied!");
                       }}
                     >
-                      <Copy className="w-3 h-3" /> Copy
+                      <Copy className="w-3 h-3" aria-hidden="true" /> Copy
                     </Button>
                   </div>
                   <pre className="p-4 rounded-xl bg-muted/80 border border-border text-xs font-mono overflow-x-auto text-foreground">
@@ -254,15 +258,17 @@ export default function ApiReference() {
                   <div className="flex items-center justify-between text-xs text-muted-foreground">
                     <span className="font-semibold uppercase text-[10px] tracking-wider">Sample JSON Response (200 OK)</span>
                     <Button
+                      type="button"
                       variant="ghost"
                       size="sm"
+                      aria-label="Copy JSON response"
                       className="h-6 text-xs gap-1"
                       onClick={() => {
                         navigator.clipboard.writeText(selectedEndpoint.responseExample);
                         toast.success("JSON response copied!");
                       }}
                     >
-                      <Copy className="w-3 h-3" /> Copy
+                      <Copy className="w-3 h-3" aria-hidden="true" /> Copy
                     </Button>
                   </div>
                   <pre className="p-4 rounded-xl bg-muted/80 border border-border text-xs font-mono overflow-x-auto text-emerald-400">
