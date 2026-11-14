@@ -69,7 +69,7 @@ export default function Changelog() {
           {/* Header */}
           <div className="text-center max-w-2xl mx-auto mb-16">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 border border-primary/20 text-primary text-xs font-semibold mb-4">
-              <Rocket className="w-3.5 h-3.5" />
+              <Rocket className="w-3.5 h-3.5" aria-hidden="true" />
               Product Evolution
             </div>
             <h1 className="text-4xl sm:text-5xl font-extrabold tracking-tight mb-4">
@@ -85,7 +85,7 @@ export default function Changelog() {
             {releases.map((rel) => (
               <div key={rel.version} className="relative pl-12">
                 {/* Timeline dot */}
-                <div className="absolute left-3 top-1.5 w-5 h-5 rounded-full bg-card border-2 border-primary flex items-center justify-center -translate-x-1/2">
+                <div aria-hidden="true" className="absolute left-3 top-1.5 w-5 h-5 rounded-full bg-card border-2 border-primary flex items-center justify-center -translate-x-1/2">
                   <div className="w-2 h-2 rounded-full bg-primary" />
                 </div>
 

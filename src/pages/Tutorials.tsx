@@ -116,7 +116,7 @@ export default function Tutorials() {
                       {tut.difficulty}
                     </Badge>
                     <span className="text-xs text-muted-foreground flex items-center gap-1">
-                      <Clock className="w-3.5 h-3.5" />
+                      <Clock className="w-3.5 h-3.5" aria-hidden="true" />
                       {tut.duration}
                     </span>
                   </div>
@@ -134,7 +134,7 @@ export default function Tutorials() {
                     </div>
                     {tut.steps.map((st, i) => (
                       <div key={i} className="flex items-start gap-2 text-foreground/80">
-                        <CheckCircle2 className="w-3.5 h-3.5 text-primary shrink-0 mt-0.5" />
+                        <CheckCircle2 className="w-3.5 h-3.5 text-primary shrink-0 mt-0.5" aria-hidden="true" />
                         <span>{st}</span>
                       </div>
                     ))}
@@ -143,7 +143,7 @@ export default function Tutorials() {
                   <div className="pt-2 flex items-center gap-3">
                     <Button asChild size="sm" className="w-full gap-2 text-xs font-semibold">
                       <Link to="/demo">
-                        <Workflow className="w-3.5 h-3.5" /> Launch in Demo Canvas
+                        <Workflow className="w-3.5 h-3.5" aria-hidden="true" /> Launch in Demo Canvas
                       </Link>
                     </Button>
                   </div>
