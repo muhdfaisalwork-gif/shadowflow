@@ -1,14 +1,13 @@
 import { type FC, useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Zap, Download, ArrowLeft, User, Calendar, Loader2 } from 'lucide-react';
+import { Zap, Download, ArrowLeft, Calendar, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
-import type { WorkflowNode, WorkflowEdge } from '@/types/workflow';
 
 interface SharedWorkflowData {
   id: string;
@@ -109,33 +108,33 @@ const SharedWorkflow: FC = () => {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-      </div>
+      <main className="min-h-screen bg-background flex items-center justify-center" role="status" aria-label="Loading shared workflow">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" aria-hidden="true" />
+      </main>
     );
   }
 
   if (error || !workflow) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center p-4">
+      <main className="min-h-screen bg-background flex items-center justify-center p-4">
         <Card className="max-w-md w-full">
           <CardContent className="pt-6 text-center">
             <div className="p-4 rounded-full bg-destructive/10 w-fit mx-auto mb-4">
-              <Zap className="h-8 w-8 text-destructive" />
+              <Zap className="h-8 w-8 text-destructive" aria-hidden="true" />
             </div>
-            <h2 className="text-xl font-bold mb-2">Workflow Not Found</h2>
+            <h1 className="text-xl font-bold mb-2">Workflow Not Found</h1>
             <p className="text-muted-foreground mb-6">
               {error || 'This workflow link is invalid or has expired.'}
             </p>
             <Link to="/">
               <Button>
-                <ArrowLeft className="h-4 w-4 mr-2" />
+                <ArrowLeft className="h-4 w-4 mr-2" aria-hidden="true" />
                 Back to Home
               </Button>
             </Link>
           </CardContent>
         </Card>
-      </div>
+      </main>
     );
   }
 
@@ -149,7 +148,7 @@ const SharedWorkflow: FC = () => {
         <div className="container mx-auto px-4 h-16 flex items-center justify-between">
           <Link to="/" className="flex items-center gap-2">
             <div className="p-1.5 rounded-lg gradient-primary">
-              <Zap className="w-5 h-5 text-white" />
+              <Zap className="w-5 h-5 text-white" aria-hidden="true" />
             </div>
             <span className="font-bold text-lg">Shadow Flow</span>
           </Link>
@@ -176,7 +175,7 @@ const SharedWorkflow: FC = () => {
               <div className="flex items-start justify-between">
                 <div className="flex items-center gap-3">
                   <div className="p-3 rounded-xl gradient-primary">
-                    <Zap className="h-6 w-6 text-white" />
+                    <Zap className="h-6 w-6 text-white" aria-hidden="true" />
                   </div>
                   <div>
                     <CardTitle className="text-2xl">{workflow.name}</CardTitle>
@@ -208,7 +207,7 @@ const SharedWorkflow: FC = () => {
               {/* Meta Info */}
               <div className="flex items-center gap-6 text-sm text-muted-foreground pt-4 border-t border-border">
                 <span className="flex items-center gap-2">
-                  <Calendar className="h-4 w-4" />
+                  <Calendar className="h-4 w-4" aria-hidden="true" />
                   Updated {formatDate(workflow.updated_at)}
                 </span>
               </div>
@@ -221,9 +220,9 @@ const SharedWorkflow: FC = () => {
                   disabled={isImporting}
                 >
                   {isImporting ? (
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" aria-hidden="true" />
                   ) : (
-                    <Download className="h-4 w-4 mr-2" />
+                    <Download className="h-4 w-4 mr-2" aria-hidden="true" />
                   )}
                   {user ? 'Import to My Workflows' : 'Sign In to Import'}
                 </Button>

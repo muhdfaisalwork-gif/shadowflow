@@ -32,14 +32,14 @@ const VerifyEmail: FC = () => {
   }, [token]);
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background p-4">
-      <div className="absolute inset-0 bg-grid opacity-30" />
+    <main className="min-h-screen flex items-center justify-center bg-background p-4">
+      <div className="absolute inset-0 bg-grid opacity-30" aria-hidden="true" />
       <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="relative w-full max-w-md">
         <Card className="border-border/50 bg-card/50 backdrop-blur-sm">
           <CardHeader className="text-center">
             <div className="flex justify-center mb-4">
               <div className="p-3 rounded-xl gradient-primary">
-                <Zap className="w-8 h-8 text-white" />
+                <Zap className="w-8 h-8 text-white" aria-hidden="true" />
               </div>
             </div>
             <CardTitle className="text-2xl">
@@ -54,11 +54,11 @@ const VerifyEmail: FC = () => {
           </CardHeader>
 
           <CardContent className="text-center space-y-4" aria-live="polite">
-            {status === 'verifying' && <Loader2 className="w-10 h-10 text-primary mx-auto animate-spin" />}
-            {status === 'success' && <CheckCircle className="w-12 h-12 text-primary mx-auto" />}
+            {status === 'verifying' && <Loader2 className="w-10 h-10 text-primary mx-auto animate-spin" aria-hidden="true" />}
+            {status === 'success' && <CheckCircle className="w-12 h-12 text-primary mx-auto" aria-hidden="true" />}
             {status === 'error' && (
               <>
-                <XCircle className="w-12 h-12 text-destructive mx-auto" />
+                <XCircle className="w-12 h-12 text-destructive mx-auto" aria-hidden="true" />
                 <p className="text-sm text-muted-foreground">{message}</p>
               </>
             )}
@@ -76,7 +76,7 @@ const VerifyEmail: FC = () => {
           </CardFooter>
         </Card>
       </motion.div>
-    </div>
+    </main>
   );
 };
 
