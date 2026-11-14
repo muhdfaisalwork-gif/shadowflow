@@ -123,15 +123,15 @@ export default function Docs() {
 
           <div className="space-y-3">
             <div className="flex items-start gap-3 text-xs">
-              <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
+              <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" aria-hidden="true" />
               <span><strong>Automatic Trigger Conversion:</strong> Webhooks, Cron Schedules, and manual triggers are mapped instantly.</span>
             </div>
             <div className="flex items-start gap-3 text-xs">
-              <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
+              <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" aria-hidden="true" />
               <span><strong>Zero Telemetry Guarantee:</strong> Eliminate unexpected tracking and licensing restrictions.</span>
             </div>
             <div className="flex items-start gap-3 text-xs">
-              <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
+              <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" aria-hidden="true" />
               <span><strong>Expression Compatibility:</strong> JavaScript expressions like <code>$json.body.id</code> resolve naturally.</span>
             </div>
           </div>
@@ -186,7 +186,7 @@ export default function Docs() {
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-8 mb-8 border-b border-border">
             <div>
               <div className="flex items-center gap-2 mb-1">
-                <BookOpen className="w-5 h-5 text-primary" />
+                <BookOpen className="w-5 h-5 text-primary" aria-hidden="true" />
                 <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight">Documentation</h1>
                 <Badge variant="secondary" className="text-xs">v1.0.2</Badge>
               </div>
@@ -209,7 +209,7 @@ export default function Docs() {
               </div>
               <Button asChild size="sm" variant="outline" className="text-xs h-9 shrink-0 gap-1.5">
                 <Link to="/api-reference">
-                  <Terminal className="w-3.5 h-3.5 text-primary" /> API Reference
+                  <Terminal className="w-3.5 h-3.5 text-primary" aria-hidden="true" /> API Reference
                 </Link>
               </Button>
             </div>
@@ -220,22 +220,28 @@ export default function Docs() {
             {/* Sidebar */}
             <div className="lg:col-span-3 space-y-6">
               <div className="space-y-1">
-                {filteredSections.map((sec) => (
-                  <button
-                    key={sec.id}
-                    type="button"
-                    aria-pressed={activeSectionId === sec.id}
-                    onClick={() => setActiveSectionId(sec.id)}
-                    className={`w-full text-left px-3 py-2 rounded-lg text-xs font-medium transition-colors flex items-center justify-between ${
-                      activeSectionId === sec.id
-                        ? "bg-primary text-primary-foreground font-semibold shadow"
-                        : "hover:bg-muted text-muted-foreground hover:text-foreground"
-                    }`}
-                  >
-                    <span>{sec.title}</span>
-                    <span className="text-[10px] opacity-75">{sec.category}</span>
-                  </button>
-                ))}
+                {filteredSections.length === 0 ? (
+                  <p className="px-3 py-2 text-xs text-muted-foreground">
+                    No topics match "{searchFilter}".
+                  </p>
+                ) : (
+                  filteredSections.map((sec) => (
+                    <button
+                      key={sec.id}
+                      type="button"
+                      aria-pressed={activeSectionId === sec.id}
+                      onClick={() => setActiveSectionId(sec.id)}
+                      className={`w-full text-left px-3 py-2 rounded-lg text-xs font-medium transition-colors flex items-center justify-between ${
+                        activeSectionId === sec.id
+                          ? "bg-primary text-primary-foreground font-semibold shadow"
+                          : "hover:bg-muted text-muted-foreground hover:text-foreground"
+                      }`}
+                    >
+                      <span>{sec.title}</span>
+                      <span className="text-[10px] opacity-75">{sec.category}</span>
+                    </button>
+                  ))
+                )}
               </div>
 
               <Card className="border-border bg-card/60 p-4 space-y-3">
@@ -245,7 +251,7 @@ export default function Docs() {
                 </p>
                 <Button asChild size="sm" className="w-full text-xs h-8 gap-1.5 font-semibold">
                   <Link to="/demo">
-                    Open Demo Canvas <ArrowRight className="w-3.5 h-3.5" />
+                    Open Demo Canvas <ArrowRight className="w-3.5 h-3.5" aria-hidden="true" />
                   </Link>
                 </Button>
               </Card>

@@ -118,7 +118,7 @@ export default function ApiReference() {
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-8 mb-8 border-b border-border">
             <div>
               <div className="flex items-center gap-2 mb-1">
-                <Terminal className="w-5 h-5 text-primary" />
+                <Terminal className="w-5 h-5 text-primary" aria-hidden="true" />
                 <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight">API & Webhook Reference</h1>
                 <Badge variant="outline" className="text-xs">REST v1</Badge>
               </div>
@@ -129,7 +129,7 @@ export default function ApiReference() {
 
             <Button asChild size="sm" variant="outline" className="text-xs h-9 gap-1.5">
               <Link to="/docs">
-                <BookOpen className="w-3.5 h-3.5" /> Full Documentation
+                <BookOpen className="w-3.5 h-3.5" aria-hidden="true" /> Full Documentation
               </Link>
             </Button>
           </div>
@@ -199,7 +199,7 @@ export default function ApiReference() {
                     <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">
                       Request Parameters
                     </h3>
-                    <div className="border border-border rounded-lg overflow-hidden text-xs">
+                    <div className="border border-border rounded-lg overflow-x-auto text-xs">
                       <table className="w-full text-left">
                         <thead className="bg-muted/60 text-muted-foreground text-[10px] uppercase">
                           <tr>
