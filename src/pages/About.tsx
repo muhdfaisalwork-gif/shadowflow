@@ -1,18 +1,13 @@
-import { Link } from "react-router-dom";
 import { Header } from "@/components/landing/Header";
 import { Footer } from "@/components/landing/Footer";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import {
-  ShieldCheck,
   Zap,
   Lock,
   Heart,
   Github,
-  ArrowRight,
-  Globe,
-  Terminal,
   Cpu,
 } from "lucide-react";
 
@@ -81,7 +76,7 @@ export default function About() {
                 <Card key={i} className="border-border bg-card/60 hover:border-primary/40 transition-all">
                   <CardContent className="p-6 space-y-3">
                     <div className="w-10 h-10 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center text-primary">
-                      <p.icon className="w-5 h-5" />
+                      <p.icon className="w-5 h-5" aria-hidden="true" />
                     </div>
                     <h3 className="font-bold text-base text-foreground">{p.title}</h3>
                     <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed">{p.desc}</p>
@@ -94,7 +89,7 @@ export default function About() {
           {/* Open Source Callout */}
           <div className="p-8 rounded-2xl bg-gradient-to-r from-primary/10 via-card to-background border border-primary/20 flex flex-col sm:flex-row items-center justify-between gap-6 text-center sm:text-left">
             <div>
-              <h3 className="text-xl font-bold mb-1">Open Source & Independent</h3>
+              <h2 className="text-xl font-bold mb-1">Open Source & Independent</h2>
               <p className="text-xs text-muted-foreground max-w-md">
                 Licensed under the permissive Apache License 2.0. Fork it, embed it in your commercial SaaS, or deploy it to private air-gapped clusters with no restrictions.
               </p>

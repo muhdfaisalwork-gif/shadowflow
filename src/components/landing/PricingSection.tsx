@@ -134,6 +134,7 @@ export function PricingSection() {
           <div className="inline-flex items-center gap-2 p-1.5 rounded-full border border-border bg-card/80 backdrop-blur-sm">
             <button
               type="button"
+              aria-pressed={interval === 'monthly'}
               onClick={() => setInterval('monthly')}
               className={`px-4 py-1.5 rounded-full text-sm font-medium transition-all ${
                 interval === 'monthly'
@@ -145,6 +146,7 @@ export function PricingSection() {
             </button>
             <button
               type="button"
+              aria-pressed={interval === 'annual'}
               onClick={() => setInterval('annual')}
               className={`px-4 py-1.5 rounded-full text-sm font-medium transition-all flex items-center gap-1.5 ${
                 interval === 'annual'
