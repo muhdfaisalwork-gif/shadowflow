@@ -5,21 +5,14 @@ import { Footer } from "@/components/landing/Footer";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
 import {
   BookOpen,
   Terminal,
-  Cpu,
-  Layers,
-  ShieldCheck,
-  Workflow,
-  Copy,
   CheckCircle2,
-  ExternalLink,
   Search,
   ArrowRight,
 } from "lucide-react";
-import { toast } from "sonner";
 
 interface DocSection {
   id: string;
@@ -79,13 +72,13 @@ export default function Docs() {
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="p-4 rounded-xl border border-border bg-card/60">
-              <h4 className="font-bold text-sm text-primary mb-1">1. WebAssembly Client Runtime</h4>
+              <h3 className="font-bold text-sm text-primary mb-1">1. WebAssembly Client Runtime</h3>
               <p className="text-xs text-muted-foreground">
                 Runs directly inside your browser tab. Instant testing, rapid prototyping, and privacy-preserving data transformations without firing a single HTTP request to a server.
               </p>
             </div>
             <div className="p-4 rounded-xl border border-border bg-card/60">
-              <h4 className="font-bold text-sm text-emerald-400 mb-1">2. Private Worker Daemon</h4>
+              <h3 className="font-bold text-sm text-emerald-400 mb-1">2. Private Worker Daemon</h3>
               <p className="text-xs text-muted-foreground">
                 Headless background micro-services for long-running batch jobs, cron triggers, vector embeddings, and enterprise webhooks running inside your private VPC.
               </p>
@@ -204,8 +197,10 @@ export default function Docs() {
 
             <div className="flex items-center gap-3 w-full sm:w-auto">
               <div className="relative w-full sm:w-64">
-                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
                 <Input
+                  type="search"
+                  aria-label="Filter documentation topics"
                   placeholder="Filter topics..."
                   value={searchFilter}
                   onChange={(e) => setSearchFilter(e.target.value)}
@@ -228,6 +223,8 @@ export default function Docs() {
                 {filteredSections.map((sec) => (
                   <button
                     key={sec.id}
+                    type="button"
+                    aria-pressed={activeSectionId === sec.id}
                     onClick={() => setActiveSectionId(sec.id)}
                     className={`w-full text-left px-3 py-2 rounded-lg text-xs font-medium transition-colors flex items-center justify-between ${
                       activeSectionId === sec.id
