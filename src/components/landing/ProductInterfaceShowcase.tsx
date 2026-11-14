@@ -2,24 +2,14 @@ import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Layers,
-  Terminal,
   Clock,
   Sparkles,
   Bot,
-  Zap,
-  Play,
-  RotateCcw,
   CheckCircle2,
   FileCode2,
-  Share2,
-  Settings2,
   Maximize2,
   ArrowRight,
-  Database,
-  Globe,
-  Sliders,
 } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Link } from "react-router-dom";
 
@@ -37,7 +27,7 @@ export function ProductInterfaceShowcase() {
         {/* Section Header */}
         <div className="text-center max-w-3xl mx-auto mb-12">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 border border-primary/25 text-primary text-xs font-semibold mb-4">
-            <Layers className="w-3.5 h-3.5" />
+            <Layers className="w-3.5 h-3.5" aria-hidden="true" />
             Verified Application Architecture
           </div>
           <h2 className="text-3xl sm:text-4xl lg:text-5xl font-extrabold tracking-tight mb-4">
@@ -48,8 +38,11 @@ export function ProductInterfaceShowcase() {
           </p>
 
           {/* Interface Mode Tabs */}
-          <div className="mt-8 flex flex-wrap items-center justify-center gap-2">
+          <div role="tablist" aria-label="Workspace preview tabs" className="mt-8 flex flex-wrap items-center justify-center gap-2">
             <button
+              type="button"
+              role="tab"
+              aria-selected={activeTab === "canvas"}
               onClick={() => setActiveTab("canvas")}
               className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold flex items-center gap-2 transition-all ${
                 activeTab === "canvas"
@@ -57,10 +50,13 @@ export function ProductInterfaceShowcase() {
                   : "bg-background/80 hover:bg-background text-muted-foreground hover:text-foreground border border-border/80"
               }`}
             >
-              <Layers className="w-4 h-4" /> Visual DAG Canvas
+              <Layers className="w-4 h-4" aria-hidden="true" /> Visual DAG Canvas
             </button>
 
             <button
+              type="button"
+              role="tab"
+              aria-selected={activeTab === "copilot"}
               onClick={() => setActiveTab("copilot")}
               className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold flex items-center gap-2 transition-all ${
                 activeTab === "copilot"
@@ -68,10 +64,13 @@ export function ProductInterfaceShowcase() {
                   : "bg-background/80 hover:bg-background text-muted-foreground hover:text-foreground border border-border/80"
               }`}
             >
-              <Bot className="w-4 h-4" /> AI Copilot Drawer
+              <Bot className="w-4 h-4" aria-hidden="true" /> AI Copilot Drawer
             </button>
 
             <button
+              type="button"
+              role="tab"
+              aria-selected={activeTab === "trace"}
               onClick={() => setActiveTab("trace")}
               className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold flex items-center gap-2 transition-all ${
                 activeTab === "trace"
@@ -79,10 +78,13 @@ export function ProductInterfaceShowcase() {
                   : "bg-background/80 hover:bg-background text-muted-foreground hover:text-foreground border border-border/80"
               }`}
             >
-              <Clock className="w-4 h-4" /> Execution Trace & Benchmarks
+              <Clock className="w-4 h-4" aria-hidden="true" /> Execution Trace & Benchmarks
             </button>
 
             <button
+              type="button"
+              role="tab"
+              aria-selected={activeTab === "n8n"}
               onClick={() => setActiveTab("n8n")}
               className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold flex items-center gap-2 transition-all ${
                 activeTab === "n8n"
@@ -90,7 +92,7 @@ export function ProductInterfaceShowcase() {
                   : "bg-background/80 hover:bg-background text-muted-foreground hover:text-foreground border border-border/80"
               }`}
             >
-              <FileCode2 className="w-4 h-4" /> Universal n8n Adapter
+              <FileCode2 className="w-4 h-4" aria-hidden="true" /> Universal n8n Adapter
             </button>
           </div>
         </div>
@@ -115,7 +117,7 @@ export function ProductInterfaceShowcase() {
               </span>
               <Button asChild size="sm" variant="ghost" className="h-7 text-xs text-slate-400 hover:text-white">
                 <Link to="/demo">
-                  Open Full Canvas <Maximize2 className="w-3 h-3 ml-1" />
+                  Open Full Canvas <Maximize2 className="w-3 h-3 ml-1" aria-hidden="true" />
                 </Link>
               </Button>
             </div>
@@ -150,9 +152,11 @@ export function ProductInterfaceShowcase() {
                   <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 items-center">
                     
                     {/* Node 1 */}
-                    <div
+                    <button
+                      type="button"
+                      aria-pressed={selectedNode === "webhook-1"}
                       onClick={() => setSelectedNode("webhook-1")}
-                      className={`p-4 rounded-xl border cursor-pointer transition-all ${
+                      className={`text-left p-4 rounded-xl border cursor-pointer transition-all ${
                         selectedNode === "webhook-1"
                           ? "bg-blue-950/40 border-blue-400 shadow-lg shadow-blue-500/10 scale-102"
                           : "bg-slate-900/60 border-slate-800 hover:border-slate-700"
@@ -163,15 +167,17 @@ export function ProductInterfaceShowcase() {
                         <span className="w-2 h-2 rounded-full bg-blue-400" />
                       </div>
                       <div className="text-sm font-bold text-white mb-1 flex items-center gap-1.5">
-                        <span>🔗</span> Webhook Ingest
+                        <span aria-hidden="true">🔗</span> Webhook Ingest
                       </div>
                       <p className="text-xs text-slate-400">POST /api/v1/event</p>
-                    </div>
+                    </button>
 
                     {/* Node 2 */}
-                    <div
+                    <button
+                      type="button"
+                      aria-pressed={selectedNode === "heuristic-2"}
                       onClick={() => setSelectedNode("heuristic-2")}
-                      className={`p-4 rounded-xl border cursor-pointer transition-all ${
+                      className={`text-left p-4 rounded-xl border cursor-pointer transition-all ${
                         selectedNode === "heuristic-2"
                           ? "bg-purple-950/40 border-purple-400 shadow-lg shadow-purple-500/10 scale-102"
                           : "bg-slate-900/60 border-slate-800 hover:border-slate-700"
@@ -182,15 +188,17 @@ export function ProductInterfaceShowcase() {
                         <span className="w-2 h-2 rounded-full bg-purple-400" />
                       </div>
                       <div className="text-sm font-bold text-white mb-1 flex items-center gap-1.5">
-                        <span>⚡</span> Heuristic Rule
+                        <span aria-hidden="true">⚡</span> Heuristic Rule
                       </div>
                       <p className="text-xs text-slate-400">Zero-cost filter</p>
-                    </div>
+                    </button>
 
                     {/* Node 3 */}
-                    <div
+                    <button
+                      type="button"
+                      aria-pressed={selectedNode === "deepseek-3"}
                       onClick={() => setSelectedNode("deepseek-3")}
-                      className={`p-4 rounded-xl border cursor-pointer transition-all ${
+                      className={`text-left p-4 rounded-xl border cursor-pointer transition-all ${
                         selectedNode === "deepseek-3"
                           ? "bg-pink-950/40 border-pink-400 shadow-lg shadow-pink-500/10 scale-102"
                           : "bg-slate-900/60 border-slate-800 hover:border-slate-700"
@@ -201,15 +209,17 @@ export function ProductInterfaceShowcase() {
                         <span className="w-2 h-2 rounded-full bg-pink-400" />
                       </div>
                       <div className="text-sm font-bold text-white mb-1 flex items-center gap-1.5">
-                        <span>🤖</span> DeepSeek R1
+                        <span aria-hidden="true">🤖</span> DeepSeek R1
                       </div>
                       <p className="text-xs text-slate-400">CoT Verification</p>
-                    </div>
+                    </button>
 
                     {/* Node 4 */}
-                    <div
+                    <button
+                      type="button"
+                      aria-pressed={selectedNode === "d1-4"}
                       onClick={() => setSelectedNode("d1-4")}
-                      className={`p-4 rounded-xl border cursor-pointer transition-all ${
+                      className={`text-left p-4 rounded-xl border cursor-pointer transition-all ${
                         selectedNode === "d1-4"
                           ? "bg-emerald-950/40 border-emerald-400 shadow-lg shadow-emerald-500/10 scale-102"
                           : "bg-slate-900/60 border-slate-800 hover:border-slate-700"
@@ -220,10 +230,10 @@ export function ProductInterfaceShowcase() {
                         <span className="w-2 h-2 rounded-full bg-emerald-400" />
                       </div>
                       <div className="text-sm font-bold text-white mb-1 flex items-center gap-1.5">
-                        <span>💾</span> Edge D1 SQLite
+                        <span aria-hidden="true">💾</span> Edge D1 SQLite
                       </div>
                       <p className="text-xs text-slate-400">Atomic upsert</p>
-                    </div>
+                    </button>
 
                   </div>
 
@@ -278,10 +288,10 @@ export function ProductInterfaceShowcase() {
                 >
                   <div className="p-4 rounded-xl bg-slate-900 border border-slate-800 flex items-start gap-4">
                     <div className="w-9 h-9 rounded-xl bg-purple-500/20 border border-purple-500/40 flex items-center justify-center text-purple-400 shrink-0">
-                      <Sparkles className="w-5 h-5" />
+                      <Sparkles className="w-5 h-5" aria-hidden="true" />
                     </div>
                     <div>
-                      <h4 className="text-sm font-bold text-white">Prompt-to-Flow AI Assistant</h4>
+                      <h3 className="text-sm font-bold text-white">Prompt-to-Flow AI Assistant</h3>
                       <p className="text-xs text-slate-400 mt-1">
                         Synthesizes complete visual DAG architectures from natural English descriptions without requiring custom manual wiring.
                       </p>
@@ -295,7 +305,7 @@ export function ProductInterfaceShowcase() {
 
                     <div className="p-4 rounded-lg bg-blue-950/20 border border-blue-500/30 text-xs font-mono text-slate-300 space-y-2">
                       <div className="text-blue-400 font-bold flex items-center gap-1.5">
-                        <CheckCircle2 className="w-3.5 h-3.5" /> Copilot Synthesized 4 Connected Nodes:
+                        <CheckCircle2 className="w-3.5 h-3.5" aria-hidden="true" /> Copilot Synthesized 4 Connected Nodes:
                       </div>
                       <div className="text-[11px] text-slate-400 pl-4 space-y-1">
                         <div>1. Schedule Trigger: Every Monday 08:00 UTC</div>
@@ -433,7 +443,7 @@ export function ProductInterfaceShowcase() {
             </span>
             <Button asChild size="sm" className="gap-2 font-semibold">
               <Link to="/demo">
-                Launch Live Playground <ArrowRight className="w-3.5 h-3.5" />
+                Launch Live Playground <ArrowRight className="w-3.5 h-3.5" aria-hidden="true" />
               </Link>
             </Button>
           </div>
