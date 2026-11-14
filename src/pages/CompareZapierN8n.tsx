@@ -3,19 +3,13 @@ import { Header } from "@/components/landing/Header";
 import { Footer } from "@/components/landing/Footer";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   CheckCircle2,
   XCircle,
-  Zap,
   ArrowRight,
-  ShieldCheck,
-  Cpu,
-  Layers,
-  Sparkles,
   Bot,
   DollarSign,
-  Lock,
   Globe,
   HelpCircle,
 } from "lucide-react";
@@ -140,7 +134,7 @@ export default function CompareZapierN8n() {
         }}
       />
 
-      <main className="container mx-auto px-4 py-12 max-w-6xl">
+      <main className="container mx-auto px-4 pt-24 pb-16 max-w-6xl">
         {/* Breadcrumb Navigation */}
         <nav aria-label="Breadcrumb" className="mb-6 text-xs text-muted-foreground">
           <ol className="flex items-center space-x-2">
@@ -173,7 +167,7 @@ export default function CompareZapierN8n() {
               <div className="grid md:grid-cols-3 gap-6">
                 <div>
                   <h3 className="font-semibold text-foreground mb-1 flex items-center gap-2">
-                    <Bot className="w-4 h-4 text-primary" /> Autonomous AI Agents
+                    <Bot className="w-4 h-4 text-primary" aria-hidden="true" /> Autonomous AI Agents
                   </h3>
                   <p className="text-xs text-muted-foreground">
                     Unlike linear step runners, ShadowFlow agents inspect intermediate outputs, call tools via Model Context Protocol (MCP), and recover from errors deterministically.
@@ -181,7 +175,7 @@ export default function CompareZapierN8n() {
                 </div>
                 <div>
                   <h3 className="font-semibold text-foreground mb-1 flex items-center gap-2">
-                    <Globe className="w-4 h-4 text-primary" /> Browser DOM Automation
+                    <Globe className="w-4 h-4 text-primary" aria-hidden="true" /> Browser DOM Automation
                   </h3>
                   <p className="text-xs text-muted-foreground">
                     Automate web portals, social feeds, and legacy SaaS where official APIs do not exist or enforce restrictive paywalls.
@@ -189,7 +183,7 @@ export default function CompareZapierN8n() {
                 </div>
                 <div>
                   <h3 className="font-semibold text-foreground mb-1 flex items-center gap-2">
-                    <DollarSign className="w-4 h-4 text-primary" /> Zero Task Execution Fees
+                    <DollarSign className="w-4 h-4 text-primary" aria-hidden="true" /> Zero Task Execution Fees
                   </h3>
                   <p className="text-xs text-muted-foreground">
                     Run millions of workflow events on Cloudflare edge workers or self-host via Docker without paying per-action metered tax.
@@ -227,16 +221,16 @@ export default function CompareZapierN8n() {
                     </th>
                     <td className="p-4 font-semibold text-foreground bg-primary/5">
                       <span className="flex items-start gap-1.5">
-                        <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
+                        <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" aria-hidden="true" />
                         {row.shadowflow}
                       </span>
                     </td>
                     <td className="p-4 text-muted-foreground">
                       <span className="flex items-start gap-1.5">
                         {row.zapier.includes("No") ? (
-                          <XCircle className="w-4 h-4 text-destructive/70 shrink-0 mt-0.5" />
+                          <XCircle className="w-4 h-4 text-destructive/70 shrink-0 mt-0.5" aria-hidden="true" />
                         ) : (
-                          <CheckCircle2 className="w-4 h-4 text-muted-foreground/60 shrink-0 mt-0.5" />
+                          <CheckCircle2 className="w-4 h-4 text-muted-foreground/60 shrink-0 mt-0.5" aria-hidden="true" />
                         )}
                         {row.zapier}
                       </span>
@@ -244,16 +238,16 @@ export default function CompareZapierN8n() {
                     <td className="p-4 text-muted-foreground">
                       <span className="flex items-start gap-1.5">
                         {row.make.includes("No") ? (
-                          <XCircle className="w-4 h-4 text-destructive/70 shrink-0 mt-0.5" />
+                          <XCircle className="w-4 h-4 text-destructive/70 shrink-0 mt-0.5" aria-hidden="true" />
                         ) : (
-                          <CheckCircle2 className="w-4 h-4 text-muted-foreground/60 shrink-0 mt-0.5" />
+                          <CheckCircle2 className="w-4 h-4 text-muted-foreground/60 shrink-0 mt-0.5" aria-hidden="true" />
                         )}
                         {row.make}
                       </span>
                     </td>
                     <td className="p-4 text-muted-foreground">
                       <span className="flex items-start gap-1.5">
-                        <CheckCircle2 className="w-4 h-4 text-muted-foreground/60 shrink-0 mt-0.5" />
+                        <CheckCircle2 className="w-4 h-4 text-muted-foreground/60 shrink-0 mt-0.5" aria-hidden="true" />
                         {row.n8n}
                       </span>
                     </td>
@@ -307,7 +301,7 @@ export default function CompareZapierN8n() {
               <Card key={i} className="border-border/60">
                 <CardHeader>
                   <CardTitle className="text-base font-semibold flex items-start gap-2">
-                    <HelpCircle className="w-5 h-5 text-primary shrink-0 mt-0.5" />
+                    <HelpCircle className="w-5 h-5 text-primary shrink-0 mt-0.5" aria-hidden="true" />
                     {f.q}
                   </CardTitle>
                 </CardHeader>
@@ -332,7 +326,7 @@ export default function CompareZapierN8n() {
           <div className="flex flex-wrap items-center justify-center gap-4">
             <Link to="/demo">
               <Button size="lg" className="gap-2 font-semibold">
-                Launch Live Canvas Demo <ArrowRight className="w-4 h-4" />
+                Launch Live Canvas Demo <ArrowRight className="w-4 h-4" aria-hidden="true" />
               </Button>
             </Link>
             <Link to="/features">
