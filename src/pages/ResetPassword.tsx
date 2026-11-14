@@ -70,20 +70,20 @@ const ResetPassword: FC = () => {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background p-4">
-      <div className="absolute inset-0 bg-grid opacity-30" />
-      <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-electric/10 rounded-full blur-3xl" />
+    <main className="min-h-screen flex items-center justify-center bg-background p-4">
+      <div className="absolute inset-0 bg-grid opacity-30" aria-hidden="true" />
+      <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-electric/10 rounded-full blur-3xl" aria-hidden="true" />
 
       <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="relative w-full max-w-md">
         <Link to="/login" className="inline-flex items-center gap-2 text-muted-foreground hover:text-foreground mb-6 transition-colors">
-          <ArrowLeft className="w-4 h-4" /> Back to login
+          <ArrowLeft className="w-4 h-4" aria-hidden="true" /> Back to login
         </Link>
 
         <Card className="border-border/50 bg-card/50 backdrop-blur-sm">
           <CardHeader className="text-center">
             <div className="flex justify-center mb-4">
               <div className="p-3 rounded-xl gradient-primary">
-                <Zap className="w-8 h-8 text-white" />
+                <Zap className="w-8 h-8 text-white" aria-hidden="true" />
               </div>
             </div>
             <CardTitle className="text-2xl">
@@ -96,7 +96,7 @@ const ResetPassword: FC = () => {
 
           {emailSent && !isRecovery ? (
             <CardContent className="text-center space-y-4">
-              <CheckCircle className="w-12 h-12 text-primary mx-auto" />
+              <CheckCircle className="w-12 h-12 text-primary mx-auto" aria-hidden="true" />
               <p className="text-sm text-muted-foreground">
                 Check your email for a password reset link. It may take a few minutes.
               </p>
@@ -108,10 +108,11 @@ const ResetPassword: FC = () => {
                   <div className="space-y-2">
                     <Label htmlFor="new-password">New Password</Label>
                     <div className="relative">
-                      <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                      <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" aria-hidden="true" />
                       <Input
                         id="new-password"
                         type="password"
+                        autoComplete="new-password"
                         placeholder="••••••••"
                         value={newPassword}
                         onChange={(e) => setNewPassword(e.target.value)}
@@ -126,10 +127,11 @@ const ResetPassword: FC = () => {
                   <div className="space-y-2">
                     <Label htmlFor="reset-email">Email</Label>
                     <div className="relative">
-                      <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                      <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" aria-hidden="true" />
                       <Input
                         id="reset-email"
                         type="email"
+                        autoComplete="email"
                         placeholder="you@example.com"
                         value={email}
                         onChange={(e) => setEmail(e.target.value)}
@@ -142,7 +144,7 @@ const ResetPassword: FC = () => {
               </CardContent>
               <CardFooter>
                 <Button type="submit" className="w-full gradient-primary text-white" disabled={isLoading}>
-                  {isLoading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
+                  {isLoading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" aria-hidden="true" /> : null}
                   {isRecovery ? 'Update Password' : 'Send Reset Link'}
                 </Button>
               </CardFooter>
@@ -150,7 +152,7 @@ const ResetPassword: FC = () => {
           )}
         </Card>
       </motion.div>
-    </div>
+    </main>
   );
 };
 
