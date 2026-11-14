@@ -9,16 +9,11 @@ import {
   Cpu,
   Layers,
   Sparkles,
-  ShieldCheck,
-  Zap,
   GitBranch,
   KeyRound,
   ArrowRight,
   CheckCircle2,
   Terminal,
-  Globe,
-  Sliders,
-  Server,
   Lock,
 } from "lucide-react";
 
@@ -145,12 +140,12 @@ export default function Features() {
               Engineered for Speed, Privacy, and Scalability
             </h1>
             <p className="text-base sm:text-lg text-muted-foreground">
-              Discover the full suite of capabilities that make Shadow Flow the most robust open-source automation platform for modern engineering teams.
+              Explore the core DAG engine, Model Context Protocol support, n8n JSON importer, and zero-telemetry security built into Shadow Flow.
             </p>
             <div className="mt-6 flex flex-wrap items-center justify-center gap-4">
               <Button asChild className="gap-2 font-semibold">
                 <Link to="/demo">
-                  Try Live Canvas Demo <ArrowRight className="w-4 h-4" />
+                  Try Live Canvas Demo <ArrowRight className="w-4 h-4" aria-hidden="true" />
                 </Link>
               </Button>
               <Button asChild variant="outline">
@@ -166,7 +161,7 @@ export default function Features() {
                 <CardHeader className="space-y-2">
                   <div className="flex items-center justify-between">
                     <div className="w-12 h-12 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center text-primary">
-                      <f.icon className="w-6 h-6" />
+                      <f.icon className="w-6 h-6" aria-hidden="true" />
                     </div>
                     <Badge variant="secondary" className="text-xs">
                       {f.badge}
@@ -181,7 +176,7 @@ export default function Features() {
                   <ul className="space-y-2 pt-2 border-t border-border text-xs">
                     {f.points.map((pt, idx) => (
                       <li key={idx} className="flex items-center gap-2 text-foreground/80">
-                        <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
+                        <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" aria-hidden="true" />
                         <span>{pt}</span>
                       </li>
                     ))}
