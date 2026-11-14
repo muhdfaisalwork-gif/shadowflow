@@ -1,20 +1,15 @@
 import { useState, useEffect, useRef } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 import {
   Play,
   Pause,
   RotateCcw,
   SkipForward,
   CheckCircle2,
-  Cpu,
-  Layers,
-  Sparkles,
   Zap,
   Terminal,
-  Clock,
   ArrowRight,
   ShieldCheck,
-  Code2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -356,7 +351,7 @@ export function InteractiveWorkflowStudio() {
         {/* Section Header */}
         <div className="text-center max-w-3xl mx-auto mb-12">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 border border-primary/25 text-primary text-xs font-semibold mb-4">
-            <Zap className="w-3.5 h-3.5" />
+            <Zap className="w-3.5 h-3.5" aria-hidden="true" />
             Signature Interactive Studio
           </div>
           <h2 className="text-3xl sm:text-4xl lg:text-5xl font-extrabold tracking-tight mb-4">
@@ -367,10 +362,13 @@ export function InteractiveWorkflowStudio() {
           </p>
 
           {/* Scenario Tabs */}
-          <div className="mt-8 flex flex-wrap items-center justify-center gap-2">
+          <div role="tablist" aria-label="Workflow simulation scenarios" className="mt-8 flex flex-wrap items-center justify-center gap-2">
             {PRESET_SCENARIOS.map((sc, idx) => (
               <button
                 key={sc.id}
+                type="button"
+                role="tab"
+                aria-selected={selectedScenarioIndex === idx}
                 onClick={() => {
                   setSelectedScenarioIndex(idx);
                   setActiveStageIndex(0);
@@ -412,7 +410,7 @@ export function InteractiveWorkflowStudio() {
                 onClick={() => setIsPlaying(!isPlaying)}
                 className="gap-1.5 text-xs font-semibold h-8"
               >
-                {isPlaying ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
+                {isPlaying ? <Pause className="w-3.5 h-3.5" aria-hidden="true" /> : <Play className="w-3.5 h-3.5" aria-hidden="true" />}
                 {isPlaying ? "Pause" : "Run Simulation"}
               </Button>
 
@@ -423,7 +421,7 @@ export function InteractiveWorkflowStudio() {
                 className="gap-1.5 text-xs h-8"
                 title="Advance to next step"
               >
-                <SkipForward className="w-3.5 h-3.5" />
+                <SkipForward className="w-3.5 h-3.5" aria-hidden="true" />
                 Step
               </Button>
 
@@ -433,8 +431,9 @@ export function InteractiveWorkflowStudio() {
                 onClick={handleReset}
                 className="h-8 w-8 p-0"
                 title="Reset simulation"
+                aria-label="Reset simulation"
               >
-                <RotateCcw className="w-3.5 h-3.5" />
+                <RotateCcw className="w-3.5 h-3.5" aria-hidden="true" />
               </Button>
             </div>
           </div>
@@ -450,15 +449,17 @@ export function InteractiveWorkflowStudio() {
                   const isPast = idx < activeStageIndex;
 
                   return (
-                    <motion.div
+                    <motion.button
                       key={stage.id}
+                      type="button"
+                      aria-pressed={isCurrent}
                       onClick={() => {
                         setIsPlaying(false);
                         setActiveStageIndex(idx);
                       }}
                       whileHover={{ scale: 1.02 }}
                       whileTap={{ scale: 0.98 }}
-                      className={`cursor-pointer rounded-2xl p-4 transition-all relative select-none border ${
+                      className={`text-left cursor-pointer rounded-2xl p-4 transition-all relative select-none border ${
                         isCurrent
                           ? "bg-primary/15 border-primary shadow-xl shadow-primary/10 ring-2 ring-primary/30"
                           : isPast
@@ -474,7 +475,7 @@ export function InteractiveWorkflowStudio() {
                         {isCurrent ? (
                           <span className="w-2.5 h-2.5 rounded-full bg-primary animate-ping" />
                         ) : isPast ? (
-                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" aria-hidden="true" />
                         ) : (
                           <span className="w-2 h-2 rounded-full bg-border" />
                         )}
@@ -482,10 +483,10 @@ export function InteractiveWorkflowStudio() {
 
                       {/* Title & Icon */}
                       <div className="flex items-center gap-2 mb-1">
-                        <span className="text-xl shrink-0">{stage.icon}</span>
-                        <h4 className="text-sm font-bold text-foreground truncate">
+                        <span className="text-xl shrink-0" aria-hidden="true">{stage.icon}</span>
+                        <h3 className="text-sm font-bold text-foreground truncate">
                           {stage.name}
-                        </h4>
+                        </h3>
                       </div>
 
                       <p className="text-xs text-muted-foreground truncate mb-3">
@@ -499,7 +500,7 @@ export function InteractiveWorkflowStudio() {
                           {stage.latency}
                         </span>
                       </div>
-                    </motion.div>
+                    </motion.button>
                   );
                 })}
               </div>
@@ -534,7 +535,7 @@ export function InteractiveWorkflowStudio() {
                   <span>STAGE {activeStage.stepNumber} DETAILED SPECIFICATION</span>
                 </div>
                 <h3 className="text-2xl font-bold text-foreground flex items-center gap-2 mb-3">
-                  <span>{activeStage.icon}</span>
+                  <span aria-hidden="true">{activeStage.icon}</span>
                   {activeStage.name}
                 </h3>
                 <p className="text-sm text-muted-foreground leading-relaxed">
@@ -544,7 +545,7 @@ export function InteractiveWorkflowStudio() {
 
               {/* Verified Product Feature Badge */}
               <div className="p-4 rounded-xl border border-primary/20 bg-primary/5 flex items-start gap-3">
-                <ShieldCheck className="w-5 h-5 text-primary shrink-0 mt-0.5" />
+                <ShieldCheck className="w-5 h-5 text-primary shrink-0 mt-0.5" aria-hidden="true" />
                 <div>
                   <h4 className="text-xs font-bold text-foreground uppercase tracking-wide">
                     Genuine Shadow Flow Capability
@@ -559,7 +560,7 @@ export function InteractiveWorkflowStudio() {
               <div className="flex flex-wrap items-center gap-3 pt-2">
                 <Button asChild size="sm" className="gap-2 text-xs font-semibold">
                   <Link to="/demo">
-                    Open Live Canvas Demo <ArrowRight className="w-3.5 h-3.5" />
+                    Open Live Canvas Demo <ArrowRight className="w-3.5 h-3.5" aria-hidden="true" />
                   </Link>
                 </Button>
                 <Button asChild variant="outline" size="sm" className="text-xs">
@@ -574,7 +575,7 @@ export function InteractiveWorkflowStudio() {
             <div className="flex flex-col rounded-xl border border-border/80 bg-slate-950 overflow-hidden shadow-inner">
               <div className="px-4 py-2.5 bg-slate-900 border-b border-border/60 flex items-center justify-between text-xs font-mono text-muted-foreground">
                 <div className="flex items-center gap-2">
-                  <Terminal className="w-3.5 h-3.5 text-primary" />
+                  <Terminal className="w-3.5 h-3.5 text-primary" aria-hidden="true" />
                   <span>runtime.context.payload.json</span>
                 </div>
                 <Badge variant="outline" className="text-[10px] bg-slate-950 font-mono text-emerald-400 border-emerald-500/30">
