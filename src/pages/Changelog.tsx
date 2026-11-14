@@ -1,9 +1,8 @@
-import { Link } from "react-router-dom";
 import { Header } from "@/components/landing/Header";
 import { Footer } from "@/components/landing/Footer";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
-import { Sparkles, GitCommit, CheckCircle2, Rocket, ArrowRight } from "lucide-react";
+import { GitCommit, Rocket } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 interface Release {
@@ -130,13 +129,13 @@ export default function Changelog() {
 
           {/* GitHub releases callout */}
           <div className="mt-16 p-6 rounded-2xl bg-secondary/40 border border-border text-center">
-            <h3 className="font-bold text-base mb-2">Want to see full commit diffs?</h3>
+            <h2 className="font-bold text-base mb-2">Want to see full commit diffs?</h2>
             <p className="text-xs text-muted-foreground mb-4">
               Our complete Git commit history and releases are 100% public on GitHub under the Apache 2.0 license.
             </p>
             <Button asChild variant="outline" size="sm" className="gap-2">
               <a href="https://github.com/muhdfaisalwork-gif/shadowflow" target="_blank" rel="noopener noreferrer">
-                <GitCommit className="w-4 h-4" /> View GitHub Commits
+                <GitCommit className="w-4 h-4" aria-hidden="true" /> View GitHub Commits
               </a>
             </Button>
           </div>

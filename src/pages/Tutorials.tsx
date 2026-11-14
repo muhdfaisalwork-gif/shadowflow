@@ -7,11 +7,6 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import {
   GraduationCap,
   Clock,
-  ArrowRight,
-  Sparkles,
-  Bot,
-  Layers,
-  Terminal,
   CheckCircle2,
   Workflow,
 } from "lucide-react";
@@ -92,14 +87,14 @@ export default function Tutorials() {
           {/* Header */}
           <div className="text-center max-w-3xl mx-auto mb-16">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 border border-primary/20 text-primary text-xs font-semibold mb-4">
-              <GraduationCap className="w-3.5 h-3.5" />
+              <GraduationCap className="w-3.5 h-3.5" aria-hidden="true" />
               Hands-On Automation Guides
             </div>
             <h1 className="text-4xl sm:text-5xl font-extrabold tracking-tight mb-4">
               Step-by-Step Tutorials
             </h1>
             <p className="text-base sm:text-lg text-muted-foreground">
-              Master autonomous workflow engineering with comprehensive guides, sample architectures, and runnable workflow templates.
+              Master autonomous workflow engineering with hands-on guides, sample architectures, and runnable workflow templates.
             </p>
           </div>
 
