@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { Link } from "react-router-dom";
 import { Header } from "@/components/landing/Header";
 import { Footer } from "@/components/landing/Footer";
 import { Button } from "@/components/ui/button";
@@ -8,14 +7,12 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import {
-  Mail,
   MessageSquare,
   ShieldAlert,
   Send,
   Building,
   CheckCircle2,
   Clock,
-  Sparkles,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -96,7 +93,7 @@ export default function Contact() {
                   <Card key={i} className="border-border bg-card/60">
                     <CardContent className="p-5 flex items-start gap-4">
                       <div className="w-10 h-10 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center text-primary shrink-0">
-                        <c.icon className="w-5 h-5" />
+                        <c.icon className="w-5 h-5" aria-hidden="true" />
                       </div>
                       <div className="space-y-1">
                         <h3 className="font-bold text-sm text-foreground">{c.title}</h3>
@@ -117,7 +114,7 @@ export default function Contact() {
 
               <div className="p-5 rounded-xl bg-secondary/40 border border-border text-xs text-muted-foreground space-y-2">
                 <div className="font-semibold text-foreground flex items-center gap-1.5">
-                  <Clock className="w-4 h-4 text-emerald-500" />
+                  <Clock className="w-4 h-4 text-emerald-500" aria-hidden="true" />
                   Average Response Time
                 </div>
                 <p>
@@ -139,7 +136,7 @@ export default function Contact() {
                 {submitted ? (
                   <div className="py-12 text-center space-y-4">
                     <div className="w-14 h-14 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center justify-center mx-auto">
-                      <CheckCircle2 className="w-8 h-8" />
+                      <CheckCircle2 className="w-8 h-8" aria-hidden="true" />
                     </div>
                     <h3 className="text-xl font-bold text-foreground">Message Received!</h3>
                     <p className="text-xs text-muted-foreground max-w-sm mx-auto">
@@ -160,10 +157,14 @@ export default function Contact() {
                   <form onSubmit={handleSubmit} className="space-y-4">
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div>
-                        <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block mb-1">
+                        <label
+                          htmlFor="contact-name"
+                          className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block mb-1"
+                        >
                           Your Name *
                         </label>
                         <Input
+                          id="contact-name"
                           placeholder="e.g. Alex Chen"
                           value={formData.name}
                           onChange={(e) => setFormData({ ...formData, name: e.target.value })}
@@ -171,10 +172,14 @@ export default function Contact() {
                         />
                       </div>
                       <div>
-                        <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block mb-1">
+                        <label
+                          htmlFor="contact-email"
+                          className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block mb-1"
+                        >
                           Work Email *
                         </label>
                         <Input
+                          id="contact-email"
                           type="email"
                           placeholder="alex@company.com"
                           value={formData.email}
@@ -185,10 +190,14 @@ export default function Contact() {
                     </div>
 
                     <div>
-                      <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block mb-1">
+                      <label
+                        htmlFor="contact-category"
+                        className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block mb-1"
+                      >
                         Inquiry Category
                       </label>
                       <select
+                        id="contact-category"
                         value={formData.category}
                         onChange={(e) => setFormData({ ...formData, category: e.target.value })}
                         className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
@@ -202,10 +211,14 @@ export default function Contact() {
                     </div>
 
                     <div>
-                      <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block mb-1">
+                      <label
+                        htmlFor="contact-message"
+                        className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block mb-1"
+                      >
                         How can we help? *
                       </label>
                       <Textarea
+                        id="contact-message"
                         placeholder="Tell us about your automation stack, volume expectations, or specific requirements..."
                         rows={5}
                         value={formData.message}
@@ -223,7 +236,7 @@ export default function Contact() {
                         "Sending..."
                       ) : (
                         <>
-                          <Send className="w-4 h-4" /> Send Inquiry
+                          <Send className="w-4 h-4" aria-hidden="true" /> Send Inquiry
                         </>
                       )}
                     </Button>
