@@ -8,7 +8,7 @@ const Pricing = () => {
     <div className="min-h-screen bg-background text-foreground">
       <Header />
       <main className="pt-16">
-        <PricingSection />
+        <PricingSection isStandalonePage />
         <ComparisonSection />
       </main>
       <Footer />

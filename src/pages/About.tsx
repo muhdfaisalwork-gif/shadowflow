@@ -96,7 +96,7 @@ export default function About() {
             </div>
             <Button asChild className="gap-2 font-semibold shrink-0">
               <a href="https://github.com/muhdfaisalwork-gif/shadowflow" target="_blank" rel="noopener noreferrer">
-                <Github className="w-4 h-4" /> View GitHub Repository
+                <Github className="w-4 h-4" aria-hidden="true" /> View GitHub Repository
               </a>
             </Button>
           </div>

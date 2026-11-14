@@ -36,7 +36,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 
-export function PricingSection() {
+export function PricingSection({ isStandalonePage = false }: { isStandalonePage?: boolean }) {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [interval, setInterval] = useState<BillingInterval>('annual');
@@ -119,12 +119,18 @@ export function PricingSection() {
           className="text-center max-w-3xl mx-auto mb-12"
         >
           <Badge variant="outline" className="mb-4 px-3 py-1 border-primary/40 text-primary">
-            <Sparkles className="w-3.5 h-3.5 mr-1.5" />
+            <Sparkles className="w-3.5 h-3.5 mr-1.5" aria-hidden="true" />
             Fair SaaS Pricing — Up to 65% Less Than n8n Cloud
           </Badge>
-          <h2 className="text-3xl sm:text-5xl font-bold mb-4">
-            Start Free. Scale Without <span className="gradient-text">Server Bills.</span>
-          </h2>
+          {isStandalonePage ? (
+            <h1 className="text-3xl sm:text-5xl font-bold mb-4">
+              Start Free. Scale Without <span className="gradient-text">Server Bills.</span>
+            </h1>
+          ) : (
+            <h2 className="text-3xl sm:text-5xl font-bold mb-4">
+              Start Free. Scale Without <span className="gradient-text">Server Bills.</span>
+            </h2>
+          )}
           <p className="text-lg text-muted-foreground mb-8">
             Import any n8n workflow, generate AI pipelines, and execute graphs in the cloud.
             Powered by Lemon Squeezy &amp; Polar.sh global checkout.

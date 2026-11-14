@@ -159,7 +159,7 @@ export default function Careers() {
             </p>
             <Button asChild variant="outline" size="sm" className="gap-2">
               <a href="mailto:careers@shadowflow.work">
-                Send Open Application <ArrowRight className="w-3.5 h-3.5" />
+                Send Open Application <ArrowRight className="w-3.5 h-3.5" aria-hidden="true" />
               </a>
             </Button>
           </div>
