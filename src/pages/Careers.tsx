@@ -1,21 +1,16 @@
-import { useState } from "react";
-import { Link } from "react-router-dom";
 import { Header } from "@/components/landing/Header";
 import { Footer } from "@/components/landing/Footer";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import {
-  Briefcase,
   MapPin,
   Clock,
-  Sparkles,
   ArrowRight,
   Heart,
   Globe,
   Zap,
   Laptop,
-  Smile,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -64,10 +59,7 @@ const roles: JobRole[] = [
 ];
 
 export default function Careers() {
-  const [selectedRole, setSelectedRole] = useState<JobRole | null>(null);
-
   const handleApply = (role: JobRole) => {
-    setSelectedRole(role);
     toast.success(`Application modal opened for: ${role.title}`);
   };
 
@@ -103,9 +95,9 @@ export default function Careers() {
               <Card key={i} className="border-border bg-card/60">
                 <CardContent className="p-5 space-y-2">
                   <div className="w-10 h-10 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center text-primary mb-2">
-                    <p.icon className="w-5 h-5" />
+                    <p.icon className="w-5 h-5" aria-hidden="true" />
                   </div>
-                  <h3 className="font-bold text-sm text-foreground">{p.title}</h3>
+                  <h2 className="font-bold text-sm text-foreground">{p.title}</h2>
                   <p className="text-xs text-muted-foreground leading-relaxed">{p.desc}</p>
                 </CardContent>
               </Card>
@@ -131,11 +123,11 @@ export default function Careers() {
                           {r.team}
                         </Badge>
                         <span className="text-xs text-muted-foreground flex items-center gap-1">
-                          <MapPin className="w-3.5 h-3.5" />
+                          <MapPin className="w-3.5 h-3.5" aria-hidden="true" />
                           {r.location}
                         </span>
                         <span className="text-xs text-muted-foreground flex items-center gap-1">
-                          <Clock className="w-3.5 h-3.5" />
+                          <Clock className="w-3.5 h-3.5" aria-hidden="true" />
                           {r.type}
                         </span>
                       </div>
@@ -146,10 +138,12 @@ export default function Careers() {
                     </div>
 
                     <Button
+                      type="button"
+                      aria-label={`Apply for ${r.title}`}
                       onClick={() => handleApply(r)}
                       className="shrink-0 gap-2 font-semibold text-xs h-9"
                     >
-                      Apply Now <ArrowRight className="w-3.5 h-3.5" />
+                      Apply Now <ArrowRight className="w-3.5 h-3.5" aria-hidden="true" />
                     </Button>
                   </div>
                 </Card>
@@ -159,7 +153,7 @@ export default function Careers() {
 
           {/* General Application Callout */}
           <div className="p-8 rounded-2xl bg-secondary/40 border border-border text-center max-w-2xl mx-auto">
-            <h3 className="text-lg font-bold mb-2">Don't see your specific role?</h3>
+            <h2 className="text-lg font-bold mb-2">Don't see your specific role?</h2>
             <p className="text-xs text-muted-foreground mb-4">
               We are always excited to connect with talented open-source contributors, systems programmers, and compilers researchers. Send your portfolio and GitHub profile to our talent inbox.
             </p>
