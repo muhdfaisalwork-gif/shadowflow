@@ -129,12 +129,17 @@ export default function License() {
             <div className="flex items-center justify-between">
               <h2 className="font-bold text-sm text-foreground">Official License Full Text</h2>
               <Button
+                type="button"
                 variant="outline"
                 size="sm"
                 className="text-xs h-7 gap-1.5"
-                onClick={() => {
-                  navigator.clipboard.writeText(apacheLicenseText);
-                  toast.success("License text copied to clipboard!");
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(apacheLicenseText);
+                    toast.success("License text copied to clipboard!");
+                  } catch {
+                    toast.error("Unable to copy license text to clipboard.");
+                  }
                 }}
               >
                 <Copy className="w-3.5 h-3.5" aria-hidden="true" /> Copy Text
