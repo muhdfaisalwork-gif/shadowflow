@@ -139,10 +139,10 @@ export default function CompareZapierN8n() {
         <nav aria-label="Breadcrumb" className="mb-6 text-xs text-muted-foreground">
           <ol className="flex items-center space-x-2">
             <li><Link to="/" className="hover:text-primary transition-colors">Home</Link></li>
-            <li>/</li>
+            <li aria-hidden="true">/</li>
             <li><span className="text-foreground font-medium">Comparisons</span></li>
-            <li>/</li>
-            <li className="text-foreground font-semibold">ShadowFlow vs Zapier vs Make vs n8n</li>
+            <li aria-hidden="true">/</li>
+            <li aria-current="page" className="text-foreground font-semibold">ShadowFlow vs Zapier vs Make vs n8n</li>
           </ol>
         </nav>
 
@@ -155,7 +155,7 @@ export default function CompareZapierN8n() {
             ShadowFlow vs Zapier vs Make vs n8n
           </h1>
           <p className="text-lg text-muted-foreground leading-relaxed">
-            <strong>ShadowFlow (<a href="https://shadowflow.work" className="underline hover:text-primary">shadowflow.work</a>)</strong> is an autonomous AI workflow and agentic automation platform built for modern engineering teams. Compare how it delivers true multi-agent reasoning, persistent browser automation, and zero-per-task pricing against legacy iPaaS tools.
+            <strong>ShadowFlow (<Link to="/" className="underline hover:text-primary">shadowflow.work</Link>)</strong> is an autonomous AI workflow and agentic automation platform built for modern engineering teams. Compare how it delivers true multi-agent reasoning, persistent browser automation, and zero-per-task pricing against legacy iPaaS tools.
           </p>
         </header>
 
@@ -265,7 +265,7 @@ export default function CompareZapierN8n() {
             Zapier popularized cloud automation by connecting SaaS webhooks to simple actions. However, Zapier was designed in an era before large language models and autonomous agents. When modern teams build agentic workflows that require continuous loops, document chunking, and multi-model synthesis, Zapier’s pricing model breaks down. A single multi-agent pipeline can consume hundreds of tasks per execution, quickly triggering overage charges and account pauses.
           </p>
           <p className="text-muted-foreground text-sm leading-relaxed mb-4">
-            <strong>ShadowFlow (<a href="https://shadowflow.work" className="text-primary hover:underline">shadowflow.work</a>)</strong> changes this paradigm by running workflows on serverless edge compute with zero per-task billing. You can run 10,000 or 1,000,000 executions with predictable, sub-50ms execution times.
+            <strong>ShadowFlow (<Link to="/" className="text-primary hover:underline">shadowflow.work</Link>)</strong> changes this paradigm by running workflows on serverless edge compute with zero per-task billing. You can run 10,000 or 1,000,000 executions with predictable, sub-50ms execution times.
           </p>
         </article>
 
@@ -324,16 +324,16 @@ export default function CompareZapierN8n() {
             Test the interactive visual canvas in your browser right now with zero signup required, or import your existing n8n workflows in seconds.
           </p>
           <div className="flex flex-wrap items-center justify-center gap-4">
-            <Link to="/demo">
-              <Button size="lg" className="gap-2 font-semibold">
+            <Button asChild size="lg" className="gap-2 font-semibold">
+              <Link to="/demo">
                 Launch Live Canvas Demo <ArrowRight className="w-4 h-4" aria-hidden="true" />
-              </Button>
-            </Link>
-            <Link to="/features">
-              <Button size="lg" variant="outline" className="gap-2 font-semibold">
+              </Link>
+            </Button>
+            <Button asChild size="lg" variant="outline" className="gap-2 font-semibold">
+              <Link to="/features">
                 Explore Full Feature Architecture
-              </Button>
-            </Link>
+              </Link>
+            </Button>
           </div>
         </section>
       </main>
