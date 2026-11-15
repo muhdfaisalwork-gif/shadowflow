@@ -674,23 +674,41 @@ export default {
       });
     }
 
-    // Health check endpoint
+    // Health check endpoint with active D1 connection verification
     if (
       url.pathname === '/health' ||
       url.pathname === '/api/health' ||
       (isApiHost && url.pathname === '/')
     ) {
+      const dbStart = Date.now();
+      let dbStatus = 'connected';
+      let dbLatencyMs = 0;
+
+      try {
+        if (env.DB) {
+          await env.DB.prepare('SELECT 1').first();
+          dbLatencyMs = Date.now() - dbStart;
+        } else {
+          dbStatus = 'unbound';
+        }
+      } catch (dbErr) {
+        dbStatus = 'degraded';
+        console.warn('[Health] D1 database probe error:', dbErr);
+      }
+
       return jsonResponse(
         {
-          status: 'ok',
+          status: dbStatus === 'degraded' ? 'degraded' : 'ok',
           service: 'Shadow Flow Edge Worker & Automation Engine',
           database: 'Cloudflare D1 (Serverless SQLite)',
+          databaseStatus: dbStatus,
+          databaseLatencyMs: dbLatencyMs,
           domain: 'shadowflow.work',
           environment: env.ENVIRONMENT || 'production',
           timestamp: new Date().toISOString(),
           version: '2.0.0',
         },
-        200,
+        dbStatus === 'degraded' ? 503 : 200,
         request
       );
     }
