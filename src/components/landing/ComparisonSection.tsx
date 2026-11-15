@@ -120,7 +120,7 @@ export function ComparisonSection() {
         {/* Header */}
         <div className="text-center max-w-3xl mx-auto mb-16">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 border border-primary/25 text-primary text-xs font-semibold mb-4">
-            <ShieldCheck className="w-3.5 h-3.5" />
+            <ShieldCheck className="w-3.5 h-3.5" aria-hidden="true" />
             Architectural Benchmark
           </div>
           <h2 className="text-3xl sm:text-4xl lg:text-5xl font-extrabold tracking-tight mb-4">
@@ -198,13 +198,13 @@ export function ComparisonSection() {
         <div className="mt-6 flex flex-wrap items-center justify-between gap-4 text-xs font-mono text-muted-foreground px-2">
           <div className="flex items-center gap-6">
             <span className="flex items-center gap-1.5">
-              <Check className="w-3.5 h-3.5 text-emerald-400" /> Native Support
+              <Check className="w-3.5 h-3.5 text-emerald-400" aria-hidden="true" /> Native Support
             </span>
             <span className="flex items-center gap-1.5">
-              <Minus className="w-3.5 h-3.5 text-amber-400" /> Partial / Add-on Only
+              <Minus className="w-3.5 h-3.5 text-amber-400" aria-hidden="true" /> Partial / Add-on Only
             </span>
             <span className="flex items-center gap-1.5">
-              <X className="w-3.5 h-3.5 text-red-400" /> Unsupported
+              <X className="w-3.5 h-3.5 text-red-400" aria-hidden="true" /> Unsupported
             </span>
           </div>
           <Link

@@ -98,9 +98,9 @@ export default function BlogPost() {
       <div className="min-h-screen bg-background text-foreground flex flex-col">
         <Header />
         <main className="flex-1 pt-32 pb-20 flex items-center justify-center">
-          <div className="text-center p-8 max-w-md">
-            <Loader2 className="w-10 h-10 text-primary animate-spin mx-auto mb-4" />
-            <h2 className="text-lg font-semibold mb-1">Loading Technical Deep Dive...</h2>
+          <div role="status" aria-label="Loading article" className="text-center p-8 max-w-md">
+            <Loader2 className="w-10 h-10 text-primary animate-spin mx-auto mb-4" aria-hidden="true" />
+            <h1 className="text-lg font-semibold mb-1">Loading Technical Deep Dive...</h1>
             <p className="text-xs text-muted-foreground">Retrieving article markdown and verification schemas</p>
           </div>
         </main>
@@ -115,13 +115,13 @@ export default function BlogPost() {
         <Header />
         <main className="flex-1 pt-32 pb-20 flex items-center justify-center">
           <div className="text-center p-8 max-w-md">
-            <Bot className="w-16 h-16 text-muted-foreground mx-auto mb-4" />
+            <Bot className="w-16 h-16 text-muted-foreground mx-auto mb-4" aria-hidden="true" />
             <h1 className="text-2xl font-bold mb-2">Article Not Found</h1>
             <p className="text-sm text-muted-foreground mb-6">
               The article you are looking for does not exist or may have been moved.
             </p>
-            <Button onClick={() => navigate("/blog")} className="gap-2">
-              <ArrowLeft className="w-4 h-4" /> Return to Blog
+            <Button type="button" onClick={() => navigate("/blog")} className="gap-2">
+              <ArrowLeft className="w-4 h-4" aria-hidden="true" /> Return to Blog
             </Button>
           </div>
         </main>
@@ -152,7 +152,7 @@ export default function BlogPost() {
 
       if (match[2] && match[3]) {
         const href = match[3];
-        const isExternal = href.startsWith("http") && !href.includes("shadowflow.work");
+        const isExternal = href.startsWith("http") && !/^https?:\/\/shadowflow\.work(\/|$)/i.test(href);
         parts.push(
           <a
             key={`link-${match.index}`}
@@ -220,13 +220,14 @@ export default function BlogPost() {
                 <span>{codeLanguage || "plaintext"}</span>
                 <button
                   type="button"
+                  aria-label={`Copy ${codeLanguage || "code"} snippet`}
                   onClick={() => {
                     navigator.clipboard.writeText(codeString);
                     toast.success("Code copied to clipboard!");
                   }}
                   className="flex items-center gap-1 hover:text-foreground transition-colors"
                 >
-                  <Copy className="w-3.5 h-3.5" /> Copy
+                  <Copy className="w-3.5 h-3.5" aria-hidden="true" /> Copy
                 </button>
               </div>
               <pre className="p-4 text-xs font-mono overflow-x-auto text-foreground leading-relaxed">
