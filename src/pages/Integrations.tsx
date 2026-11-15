@@ -131,42 +131,62 @@ export default function Integrations() {
           </div>
 
           {/* Integrations Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-16">
-            {filteredIntegrations.map((item) => (
-              <Card
-                key={item.name}
-                className="border-border bg-card/60 hover:border-primary/50 transition-all hover:shadow-md flex flex-col justify-between"
-              >
-                <CardHeader className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <Badge variant="secondary" className="text-[10px]">
-                      {item.category}
-                    </Badge>
-                    {item.popular && (
-                      <Badge className="bg-amber-500/20 text-amber-300 border-amber-500/30 text-[10px]">
-                        Popular
+          {filteredIntegrations.length > 0 ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-16">
+              {filteredIntegrations.map((item) => (
+                <Card
+                  key={item.name}
+                  className="border-border bg-card/60 hover:border-primary/50 transition-all hover:shadow-md flex flex-col justify-between"
+                >
+                  <CardHeader className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <Badge variant="secondary" className="text-[10px]">
+                        {item.category}
                       </Badge>
-                    )}
-                  </div>
-                  <CardTitle className="text-lg font-bold pt-1">{item.name}</CardTitle>
-                  <CardDescription className="text-xs leading-relaxed">
-                    {item.description}
-                  </CardDescription>
-                </CardHeader>
+                      {item.popular && (
+                        <Badge className="bg-amber-500/20 text-amber-300 border-amber-500/30 text-[10px]">
+                          Popular
+                        </Badge>
+                      )}
+                    </div>
+                    <CardTitle className="text-lg font-bold pt-1">{item.name}</CardTitle>
+                    <CardDescription className="text-xs leading-relaxed">
+                      {item.description}
+                    </CardDescription>
+                  </CardHeader>
 
-                <CardContent className="pt-0">
-                  <div className="pt-3 border-t border-border flex items-center justify-between text-xs text-muted-foreground">
-                    <span className="font-mono text-[11px]">{item.type}</span>
-                    <Button asChild variant="ghost" size="sm" className="h-7 text-xs gap-1 text-primary">
-                      <Link to="/demo">
-                        Use in Demo <ArrowRight className="w-3 h-3" />
-                      </Link>
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
+                  <CardContent className="pt-0">
+                    <div className="pt-3 border-t border-border flex items-center justify-between text-xs text-muted-foreground">
+                      <span className="font-mono text-[11px]">{item.type}</span>
+                      <Button asChild variant="ghost" size="sm" className="h-7 text-xs gap-1 text-primary">
+                        <Link to="/demo">
+                          Use in Demo <ArrowRight className="w-3 h-3" aria-hidden="true" />
+                        </Link>
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          ) : (
+            <div className="text-center py-14 p-8 rounded-2xl border border-dashed border-border mb-16">
+              <p className="font-semibold text-base text-foreground mb-1">No integrations found</p>
+              <p className="text-xs text-muted-foreground mb-4">
+                No connectors matched "{searchQuery}" in {selectedCategory}.
+              </p>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setSearchQuery("");
+                  setSelectedCategory("All");
+                }}
+              >
+                Reset Filters
+              </Button>
+            </div>
+          )}
 
           {/* Custom Connector Callout */}
           <div className="p-8 rounded-2xl bg-secondary/40 border border-border flex flex-col md:flex-row items-center justify-between gap-6">
@@ -178,7 +198,7 @@ export default function Integrations() {
             </div>
             <Button asChild variant="outline" className="shrink-0 gap-2">
               <Link to="/docs">
-                <Code2 className="w-4 h-4 text-primary" /> Read Node SDK Docs
+                <Code2 className="w-4 h-4 text-primary" aria-hidden="true" /> Read Node SDK Docs
               </Link>
             </Button>
           </div>

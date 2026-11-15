@@ -77,7 +77,7 @@ export default function Blog() {
           {/* Top Banner */}
           <div className="text-center max-w-3xl mx-auto mb-12">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 border border-primary/20 text-primary text-xs font-semibold mb-4">
-              <Sparkles className="w-3.5 h-3.5" />
+              <Sparkles className="w-3.5 h-3.5" aria-hidden="true" />
               Shadow Flow Engineering & AI Dispatch
             </div>
             <h1 className="text-4xl sm:text-5xl font-extrabold tracking-tight mb-4">
@@ -92,7 +92,7 @@ export default function Blog() {
           <div className="mb-12 p-6 rounded-2xl bg-gradient-to-r from-primary/15 via-purple-500/10 to-card border border-primary/25 flex flex-col md:flex-row items-center justify-between gap-6 shadow-lg">
             <div className="flex items-start gap-4">
               <div className="w-12 h-12 rounded-xl bg-primary/20 border border-primary/40 flex items-center justify-center shrink-0">
-                <Bot className="w-6 h-6 text-primary" />
+                <Bot className="w-6 h-6 text-primary" aria-hidden="true" />
               </div>
               <div>
                 <div className="flex items-center gap-2 mb-1">
@@ -111,7 +111,7 @@ export default function Blog() {
 
             <Button asChild className="gap-2 font-semibold shrink-0">
               <Link to="/seo-agent">
-                Open SEO Agent Studio <ArrowRight className="w-4 h-4" />
+                Open SEO Agent Studio <ArrowRight className="w-4 h-4" aria-hidden="true" />
               </Link>
             </Button>
           </div>
@@ -120,7 +120,7 @@ export default function Blog() {
           {featuredPost && selectedCategory === "All" && !searchQuery && (
             <div className="mb-12">
               <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3 flex items-center gap-2">
-                <TrendingUp className="w-4 h-4 text-primary" />
+                <TrendingUp className="w-4 h-4 text-primary" aria-hidden="true" />
                 Featured Architectural Deep Dive
               </div>
               <Card className="border-border overflow-hidden bg-card/60 hover:border-primary/40 transition-all shadow-md">
@@ -131,11 +131,11 @@ export default function Blog() {
                         {featuredPost.category}
                       </Badge>
                       <span className="text-xs text-muted-foreground flex items-center gap-1">
-                        <Calendar className="w-3.5 h-3.5" />
+                        <Calendar className="w-3.5 h-3.5" aria-hidden="true" />
                         {featuredPost.publishedAt}
                       </span>
                       <span className="text-xs text-muted-foreground flex items-center gap-1">
-                        <Clock className="w-3.5 h-3.5" />
+                        <Clock className="w-3.5 h-3.5" aria-hidden="true" />
                         {featuredPost.readTime}
                       </span>
                     </div>
@@ -156,7 +156,7 @@ export default function Blog() {
                           key={tag}
                           className="inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-md bg-secondary text-secondary-foreground"
                         >
-                          <Tag className="w-3 h-3 text-muted-foreground" />
+                          <Tag className="w-3 h-3 text-muted-foreground" aria-hidden="true" />
                           {tag}
                         </span>
                       ))}
@@ -165,7 +165,7 @@ export default function Blog() {
                     <div className="pt-2">
                       <Button asChild variant="outline" className="gap-2">
                         <Link to={`/blog/${featuredPost.slug}`}>
-                          Read Deep Dive <ArrowRight className="w-4 h-4" />
+                          Read Deep Dive <ArrowRight className="w-4 h-4" aria-hidden="true" />
                         </Link>
                       </Button>
                     </div>
@@ -173,7 +173,7 @@ export default function Blog() {
 
                   <div className="lg:col-span-4 flex flex-col justify-center rounded-xl bg-gradient-to-br from-primary/10 to-background border border-border p-6 text-center">
                     <div className="w-16 h-16 rounded-2xl bg-primary/20 border border-primary/40 flex items-center justify-center mx-auto mb-4">
-                      <BookOpen className="w-8 h-8 text-primary" />
+                      <BookOpen className="w-8 h-8 text-primary" aria-hidden="true" />
                     </div>
                     <div className="font-semibold text-foreground text-sm">
                       {typeof featuredPost.author === 'object' ? featuredPost.author?.name : featuredPost.author}
@@ -235,7 +235,7 @@ export default function Blog() {
                         {post.category}
                       </Badge>
                       <span className="text-[11px] text-muted-foreground flex items-center gap-1">
-                        <Clock className="w-3 h-3" />
+                        <Clock className="w-3 h-3" aria-hidden="true" />
                         {post.readTime}
                       </span>
                     </div>
@@ -279,12 +279,20 @@ export default function Blog() {
             </div>
           ) : (
             <div className="text-center py-16 p-8 rounded-2xl border border-dashed border-border">
-              <Bot className="w-12 h-12 text-muted-foreground mx-auto mb-3" />
+              <Bot className="w-12 h-12 text-muted-foreground mx-auto mb-3" aria-hidden="true" />
               <h3 className="font-semibold text-lg text-foreground mb-1">No articles found</h3>
               <p className="text-sm text-muted-foreground mb-4">
                 No articles matched your search query "{searchQuery}".
               </p>
-              <Button variant="outline" size="sm" onClick={() => setSearchQuery("")}>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setSearchQuery("");
+                  setSelectedCategory("All");
+                }}
+              >
                 Clear Search
               </Button>
             </div>
