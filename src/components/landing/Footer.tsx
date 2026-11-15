@@ -57,7 +57,7 @@ export function Footer() {
         <div className="grid grid-cols-2 md:grid-cols-6 gap-8 lg:gap-12">
           {/* Brand */}
           <div className="col-span-2">
-            <Link to="/" className="flex items-center gap-2 mb-4 group inline-flex">
+            <Link to="/" className="inline-flex items-center gap-2 mb-4 group">
               <img src={logo} alt="Shadow Flow" className="w-8 h-8 object-contain" />
               <span className="text-xl font-bold gradient-text">Shadow Flow</span>
             </Link>
@@ -85,7 +85,7 @@ export function Footer() {
           {/* Links */}
           {Object.entries(footerLinks).map(([category, links]) => (
             <div key={category}>
-              <h4 className="font-semibold mb-4 text-foreground">{category}</h4>
+              <h2 className="text-base font-semibold mb-4 text-foreground">{category}</h2>
               <ul className="space-y-3">
                 {links.map((link) => (
                   <li key={link.name}>

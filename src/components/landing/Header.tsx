@@ -85,19 +85,20 @@ export function Header() {
             {/* Desktop Actions */}
             <div className="hidden md:flex items-center gap-3">
               <Button
+                type="button"
                 variant="outline"
                 size="sm"
                 onClick={() => setSponsorModalOpen(true)}
                 className="gap-1.5 text-xs border-primary/30 text-primary hover:bg-primary/10 hover:text-primary font-medium"
               >
-                <HeartHandshake className="w-3.5 h-3.5" />
+                <HeartHandshake className="w-3.5 h-3.5" aria-hidden="true" />
                 Sponsor
               </Button>
 
               <Button variant="ghost" size="sm" className="gap-2" asChild>
                 <a href="https://github.com/muhdfaisalwork-gif/shadowflow" target="_blank" rel="noopener noreferrer">
-                  <Github className="w-4 h-4" />
-                  <Star className="w-3 h-3" />
+                  <Github className="w-4 h-4" aria-hidden="true" />
+                  <Star className="w-3 h-3" aria-hidden="true" />
                   Star
                 </a>
               </Button>
@@ -114,13 +115,13 @@ export function Header() {
                   <DropdownMenuContent align="end">
                     <DropdownMenuItem asChild>
                       <Link to="/dashboard" className="flex items-center gap-2">
-                        <User className="w-4 h-4" />
+                        <User className="w-4 h-4" aria-hidden="true" />
                         Dashboard
                       </Link>
                     </DropdownMenuItem>
                     <DropdownMenuSeparator />
                     <DropdownMenuItem onClick={handleSignOut} className="text-destructive">
-                      <LogOut className="w-4 h-4 mr-2" />
+                      <LogOut className="w-4 h-4 mr-2" aria-hidden="true" />
                       Sign Out
                     </DropdownMenuItem>
                   </DropdownMenuContent>
@@ -140,6 +141,7 @@ export function Header() {
             {/* Mobile Menu Button */}
             <div className="flex md:hidden items-center gap-2">
               <Button
+                type="button"
                 variant="ghost"
                 size="icon"
                 onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
@@ -147,7 +149,7 @@ export function Header() {
                 aria-expanded={mobileMenuOpen}
                 aria-controls="mobile-navigation-menu"
               >
-                {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+                {mobileMenuOpen ? <X className="w-5 h-5" aria-hidden="true" /> : <Menu className="w-5 h-5" aria-hidden="true" />}
               </Button>
             </div>
           </div>
@@ -192,15 +194,15 @@ export function Header() {
                   }}
                   className="flex items-center gap-2 text-sm font-semibold text-primary hover:text-primary/80 transition-colors text-left py-1"
                 >
-                  <HeartHandshake className="w-4 h-4" />
+                  <HeartHandshake className="w-4 h-4" aria-hidden="true" />
                   Sponsorship &amp; Grants (2026 Tiers)
                 </button>
 
                 <div className="flex flex-col gap-2 pt-4 border-t border-border">
                   <Button variant="outline" size="sm" className="gap-2 justify-center" asChild>
                     <a href="https://github.com/muhdfaisalwork-gif/shadowflow" target="_blank" rel="noopener noreferrer">
-                      <Github className="w-4 h-4" />
-                      <Star className="w-3 h-3" />
+                      <Github className="w-4 h-4" aria-hidden="true" />
+                      <Star className="w-3 h-3" aria-hidden="true" />
                       Star on GitHub
                     </a>
                   </Button>
