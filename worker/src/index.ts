@@ -85,6 +85,7 @@ function jsonResponse(
       'Content-Type': 'application/json',
       'X-Content-Type-Options': 'nosniff',
       'X-Frame-Options': 'DENY',
+      'X-Robots-Tag': 'noindex, nofollow',
       'Referrer-Policy': 'strict-origin-when-cross-origin',
       'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
       ...cors,
