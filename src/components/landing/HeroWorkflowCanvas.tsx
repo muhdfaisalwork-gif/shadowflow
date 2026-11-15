@@ -37,20 +37,19 @@ export function HeroWorkflowCanvas() {
     if (!ctx) return;
 
     let animationFrameId: number;
-    let width = (canvas.width = canvas.offsetWidth * window.devicePixelRatio);
-    let height = (canvas.height = canvas.offsetHeight * window.devicePixelRatio);
-    ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+    canvas.width = canvas.offsetWidth * window.devicePixelRatio;
+    canvas.height = canvas.offsetHeight * window.devicePixelRatio;
+    ctx.setTransform(window.devicePixelRatio, 0, 0, window.devicePixelRatio, 0, 0);
 
     const handleResize = () => {
       if (!canvas) return;
-      width = canvas.width = canvas.offsetWidth * window.devicePixelRatio;
-      height = canvas.height = canvas.offsetHeight * window.devicePixelRatio;
-      ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+      canvas.width = canvas.offsetWidth * window.devicePixelRatio;
+      canvas.height = canvas.offsetHeight * window.devicePixelRatio;
+      ctx.setTransform(window.devicePixelRatio, 0, 0, window.devicePixelRatio, 0, 0);
     };
 
     window.addEventListener("resize", handleResize);
 
-    const rect = canvas.getBoundingClientRect();
     let mouseX = -1000;
     let mouseY = -1000;
 
@@ -327,11 +326,16 @@ export function HeroWorkflowCanvas() {
 
   return (
     <div ref={containerRef} className="relative w-full h-[360px] sm:h-[440px] lg:h-[480px] rounded-2xl overflow-hidden glass border border-border/80">
-      <canvas ref={canvasRef} className="w-full h-full block cursor-crosshair" />
+      <canvas
+        ref={canvasRef}
+        role="img"
+        aria-label="Interactive live DAG workflow animation"
+        className="w-full h-full block cursor-crosshair"
+      />
 
       {/* Floating Status Indicator */}
       <div className="absolute top-3 left-3 flex items-center gap-2 px-3 py-1.5 rounded-full bg-background/80 backdrop-blur-md border border-border/60 text-xs font-mono text-muted-foreground pointer-events-none">
-        <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+        <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" aria-hidden="true" />
         <span>Live DAG Canvas</span>
         {hoveredNode && (
           <span className="text-foreground font-semibold ml-1 text-primary">
