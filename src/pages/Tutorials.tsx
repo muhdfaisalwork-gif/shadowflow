@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { Link } from "react-router-dom";
 import { Header } from "@/components/landing/Header";
 import { Footer } from "@/components/landing/Footer";
@@ -78,6 +79,9 @@ const tutorialsData: Tutorial[] = [
 ];
 
 export default function Tutorials() {
+  useEffect(() => {
+    document.title = "Tutorials & Guides | ShadowFlow";
+  }, []);
   return (
     <div className="min-h-screen bg-background text-foreground flex flex-col">
       <Header />

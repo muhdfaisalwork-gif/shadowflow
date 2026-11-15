@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { Header } from "@/components/landing/Header";
 import { Footer } from "@/components/landing/Footer";
 import { Button } from "@/components/ui/button";
@@ -59,6 +60,9 @@ const roles: JobRole[] = [
 ];
 
 export default function Careers() {
+  useEffect(() => {
+    document.title = "Careers & Open Roles | ShadowFlow";
+  }, []);
   const handleApply = (role: JobRole) => {
     toast.success(`Application modal opened for: ${role.title}`);
   };

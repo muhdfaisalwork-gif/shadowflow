@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { Header } from "@/components/landing/Header";
 import { Footer } from "@/components/landing/Footer";
 import { Badge } from "@/components/ui/badge";
@@ -60,6 +61,9 @@ const releases: Release[] = [
 ];
 
 export default function Changelog() {
+  useEffect(() => {
+    document.title = "Changelog & Releases | ShadowFlow";
+  }, []);
   return (
     <div className="min-h-screen bg-background text-foreground flex flex-col">
       <Header />
