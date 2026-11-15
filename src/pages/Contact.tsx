@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Header } from "@/components/landing/Header";
 import { Footer } from "@/components/landing/Footer";
 import { Button } from "@/components/ui/button";
@@ -25,18 +25,28 @@ export default function Contact() {
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  const submitTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (submitTimerRef.current !== null) {
+        window.clearTimeout(submitTimerRef.current);
+      }
+    };
+  }, []);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.name || !formData.email || !formData.message) {
+    if (!formData.name.trim() || !formData.email.trim() || !formData.message.trim()) {
       toast.error("Please fill out all required fields.");
       return;
     }
 
     setIsSubmitting(true);
-    setTimeout(() => {
+    submitTimerRef.current = window.setTimeout(() => {
       setIsSubmitting(false);
       setSubmitted(true);
+      submitTimerRef.current = null;
       toast.success("Thank you! Your message has been routed to our team.");
     }, 800);
   };
@@ -98,14 +108,23 @@ export default function Contact() {
                       <div className="space-y-1">
                         <h3 className="font-bold text-sm text-foreground">{c.title}</h3>
                         <p className="text-xs text-muted-foreground leading-relaxed">{c.desc}</p>
-                        <a
-                          href={c.href}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-xs text-primary font-medium hover:underline inline-block pt-1"
-                        >
-                          {c.action} →
-                        </a>
+                        {c.href.startsWith("mailto:") ? (
+                          <a
+                            href={c.href}
+                            className="text-xs text-primary font-medium hover:underline inline-block pt-1"
+                          >
+                            {c.action} →
+                          </a>
+                        ) : (
+                          <a
+                            href={c.href}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-xs text-primary font-medium hover:underline inline-block pt-1"
+                          >
+                            {c.action} →
+                          </a>
+                        )}
                       </div>
                     </CardContent>
                   </Card>
@@ -134,7 +153,7 @@ export default function Contact() {
                 </CardHeader>
 
                 {submitted ? (
-                  <div className="py-12 text-center space-y-4">
+                  <div role="status" className="py-12 text-center space-y-4">
                     <div className="w-14 h-14 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center justify-center mx-auto">
                       <CheckCircle2 className="w-8 h-8" aria-hidden="true" />
                     </div>
@@ -143,6 +162,7 @@ export default function Contact() {
                       Thank you for contacting us. We've routed your inquiry to our engineering team and will follow up shortly.
                     </p>
                     <Button
+                      type="button"
                       variant="outline"
                       size="sm"
                       onClick={() => {
