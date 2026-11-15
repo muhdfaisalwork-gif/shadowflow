@@ -5,7 +5,7 @@ import { Zap, Mail, Lock, User, Loader2, ArrowLeft } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardFooter, CardHeader } from '@/components/ui/card';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
@@ -24,17 +24,26 @@ const Signup: FC = () => {
 
   const handleGoogleSignUp = async () => {
     setIsGoogleLoading(true);
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: {
-        redirectTo: window.location.origin,
-      },
-    });
-    if (error) {
+    try {
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: window.location.origin,
+        },
+      });
+      if (error) {
+        toast({
+          variant: 'destructive',
+          title: 'Google Sign-Up failed',
+          description: error.message,
+        });
+        setIsGoogleLoading(false);
+      }
+    } catch (err: unknown) {
       toast({
         variant: 'destructive',
         title: 'Google Sign-Up failed',
-        description: error.message,
+        description: err instanceof Error ? err.message : 'Unable to start Google Sign-Up.',
       });
       setIsGoogleLoading(false);
     }
@@ -109,7 +118,7 @@ const Signup: FC = () => {
                 <Zap className="w-8 h-8 text-white" aria-hidden="true" />
               </div>
             </div>
-            <CardTitle className="text-2xl">Create an account</CardTitle>
+            <h1 className="text-2xl font-semibold leading-none tracking-tight">Create an account</h1>
             <CardDescription>
               Start building powerful workflows with Shadow Flow
             </CardDescription>

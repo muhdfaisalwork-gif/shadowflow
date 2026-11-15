@@ -5,7 +5,7 @@ import { Zap, Mail, Lock, Loader2, ArrowLeft, Shield, KeyRound } from 'lucide-re
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardFooter, CardHeader } from '@/components/ui/card';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
@@ -33,17 +33,26 @@ const Login: FC = () => {
 
   const handleGoogleSignIn = async () => {
     setIsGoogleLoading(true);
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: {
-        redirectTo: window.location.origin,
-      },
-    });
-    if (error) {
+    try {
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: window.location.origin,
+        },
+      });
+      if (error) {
+        toast({
+          variant: 'destructive',
+          title: 'Google Sign-In failed',
+          description: error.message,
+        });
+        setIsGoogleLoading(false);
+      }
+    } catch (err: unknown) {
       toast({
         variant: 'destructive',
         title: 'Google Sign-In failed',
-        description: error.message,
+        description: err instanceof Error ? err.message : 'Unable to start Google Sign-In.',
       });
       setIsGoogleLoading(false);
     }
@@ -167,7 +176,7 @@ const Login: FC = () => {
                     <Shield className="w-8 h-8 text-white" aria-hidden="true" />
                   </div>
                 </div>
-                <CardTitle className="text-2xl">Two-Factor Authentication</CardTitle>
+                <h1 className="text-2xl font-semibold leading-none tracking-tight">Two-Factor Authentication</h1>
                 <CardDescription>
                   {tfaMode === 'totp' && 'Enter the 6-digit code from your authenticator app.'}
                   {tfaMode === 'email' && `Enter the 6-digit verification code sent to ${tfaEmailMasked || 'your email'}.`}
@@ -310,7 +319,7 @@ const Login: FC = () => {
                     <Zap className="w-8 h-8 text-white" aria-hidden="true" />
                   </div>
                 </div>
-                <CardTitle className="text-2xl">Welcome back</CardTitle>
+                <h1 className="text-2xl font-semibold leading-none tracking-tight">Welcome back</h1>
                 <CardDescription>
                   Sign in to your Shadow Flow account
                 </CardDescription>
