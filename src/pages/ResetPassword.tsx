@@ -5,7 +5,7 @@ import { Zap, Mail, Lock, Loader2, ArrowLeft, CheckCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardFooter, CardHeader } from '@/components/ui/card';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 
@@ -37,17 +37,25 @@ const ResetPassword: FC = () => {
   const handleRequestReset = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+        redirectTo: `${window.location.origin}/reset-password`,
+      });
 
-    const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${window.location.origin}/reset-password`,
-    });
-
-    if (error) {
-      toast({ variant: 'destructive', title: 'Error', description: error.message });
-    } else {
-      setEmailSent(true);
+      if (error) {
+        toast({ variant: 'destructive', title: 'Error', description: error.message });
+      } else {
+        setEmailSent(true);
+      }
+    } catch (err: unknown) {
+      toast({
+        variant: 'destructive',
+        title: 'Error',
+        description: err instanceof Error ? err.message : 'Unable to send password reset email.',
+      });
+    } finally {
+      setIsLoading(false);
     }
-    setIsLoading(false);
   };
 
   const handleUpdatePassword = async (e: React.FormEvent) => {
@@ -57,16 +65,24 @@ const ResetPassword: FC = () => {
       return;
     }
     setIsLoading(true);
+    try {
+      const { error } = await supabase.auth.updateUser({ password: newPassword });
 
-    const { error } = await supabase.auth.updateUser({ password: newPassword });
-
-    if (error) {
-      toast({ variant: 'destructive', title: 'Error', description: error.message });
-    } else {
-      toast({ title: 'Password updated', description: 'You can now sign in with your new password.' });
-      navigate('/login');
+      if (error) {
+        toast({ variant: 'destructive', title: 'Error', description: error.message });
+      } else {
+        toast({ title: 'Password updated', description: 'You can now sign in with your new password.' });
+        navigate('/login');
+      }
+    } catch (err: unknown) {
+      toast({
+        variant: 'destructive',
+        title: 'Error',
+        description: err instanceof Error ? err.message : 'Unable to update password.',
+      });
+    } finally {
+      setIsLoading(false);
     }
-    setIsLoading(false);
   };
 
   return (
@@ -86,16 +102,16 @@ const ResetPassword: FC = () => {
                 <Zap className="w-8 h-8 text-white" aria-hidden="true" />
               </div>
             </div>
-            <CardTitle className="text-2xl">
+            <h1 className="text-2xl font-semibold leading-none tracking-tight">
               {isRecovery ? 'Set New Password' : 'Reset Password'}
-            </CardTitle>
+            </h1>
             <CardDescription>
               {isRecovery ? 'Enter your new password below' : "Enter your email and we'll send you a reset link"}
             </CardDescription>
           </CardHeader>
 
           {emailSent && !isRecovery ? (
-            <CardContent className="text-center space-y-4">
+            <CardContent role="status" className="text-center space-y-4">
               <CheckCircle className="w-12 h-12 text-primary mx-auto" aria-hidden="true" />
               <p className="text-sm text-muted-foreground">
                 Check your email for a password reset link. It may take a few minutes.
