@@ -1,6 +1,5 @@
 import { useState, useEffect } from "react";
-import { Sparkles, ArrowRight, Download, X, HeartHandshake } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { ArrowRight, Download, X, HeartHandshake } from "lucide-react";
 
 interface SponsorshipBannerProps {
   onOpenModal: () => void;
@@ -37,7 +36,7 @@ export function SponsorshipBanner({ onOpenModal }: SponsorshipBannerProps) {
         {/* Left message & Badge */}
         <div className="flex items-center gap-2 sm:gap-3 flex-wrap flex-1 min-w-0">
           <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-primary/25 border border-primary/40 text-primary font-bold text-[11px] shrink-0">
-            <HeartHandshake className="w-3.5 h-3.5 animate-pulse" />
+            <HeartHandshake className="w-3.5 h-3.5 animate-pulse" aria-hidden="true" />
             Sponsorships Open
           </span>
 
@@ -54,7 +53,7 @@ export function SponsorshipBanner({ onOpenModal }: SponsorshipBannerProps) {
             className="inline-flex items-center gap-1 font-semibold text-primary hover:text-primary/80 transition-colors underline underline-offset-4 text-xs cursor-pointer"
           >
             <span>View Tiers &amp; Deck</span>
-            <ArrowRight className="w-3.5 h-3.5" />
+            <ArrowRight className="w-3.5 h-3.5" aria-hidden="true" />
           </button>
 
           <a
@@ -63,7 +62,7 @@ export function SponsorshipBanner({ onOpenModal }: SponsorshipBannerProps) {
             className="hidden lg:inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground px-2 py-0.5 rounded border border-border bg-background/50 hover:bg-background transition-colors"
             title="Download Sponsorship Deck"
           >
-            <Download className="w-3 h-3" />
+            <Download className="w-3 h-3" aria-hidden="true" />
             Deck (.pptx)
           </a>
 
@@ -73,7 +72,7 @@ export function SponsorshipBanner({ onOpenModal }: SponsorshipBannerProps) {
             aria-label="Dismiss sponsorship announcement"
             className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-background/40 transition-colors cursor-pointer"
           >
-            <X className="w-3.5 h-3.5" />
+            <X className="w-3.5 h-3.5" aria-hidden="true" />
           </button>
         </div>
       </div>

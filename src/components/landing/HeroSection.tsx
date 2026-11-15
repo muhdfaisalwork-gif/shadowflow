@@ -63,7 +63,7 @@ export function HeroSection() {
               transition={{ duration: 0.4 }}
               className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full glass border border-primary/30 shadow-sm"
             >
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" aria-hidden="true" />
               <span className="text-xs font-semibold text-foreground">
                 Apache 2.0 Open Source Platform
               </span>
@@ -73,7 +73,7 @@ export function HeroSection() {
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-1 text-[11px] font-bold text-primary hover:underline ml-1"
               >
-                <Github className="w-3.5 h-3.5" />
+                <Github className="w-3.5 h-3.5" aria-hidden="true" />
                 <span>GitHub Star</span>
               </a>
             </motion.div>
@@ -122,19 +122,20 @@ export function HeroSection() {
                 className="gradient-primary text-white font-semibold text-sm px-6 h-12 gap-2 shadow-lg shadow-primary/20 hover:scale-[1.02] active:scale-[0.98] transition-transform"
               >
                 <Link to="/demo">
-                  <Zap className="w-4 h-4" />
+                  <Zap className="w-4 h-4" aria-hidden="true" />
                   Try Interactive Canvas
-                  <ArrowRight className="w-4 h-4 ml-1" />
+                  <ArrowRight className="w-4 h-4 ml-1" aria-hidden="true" />
                 </Link>
               </Button>
 
               <Button
+                type="button"
                 variant="outline"
                 size="lg"
                 onClick={() => setVideoOpen(true)}
                 className="h-12 px-5 text-sm font-semibold gap-2 border-border/80 hover:bg-muted/60 transition-colors"
               >
-                <Play className="w-4 h-4 text-primary" />
+                <Play className="w-4 h-4 text-primary" aria-hidden="true" />
                 Watch Architecture Demo
               </Button>
             </motion.div>
@@ -147,11 +148,11 @@ export function HeroSection() {
               className="flex flex-wrap items-center justify-center lg:justify-start gap-4 text-xs text-muted-foreground pt-3 font-mono"
             >
               <span className="flex items-center gap-1.5">
-                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" aria-hidden="true" />
                 No registration required to demo
               </span>
               <span className="flex items-center gap-1.5">
-                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" aria-hidden="true" />
                 Self-hostable via Docker
               </span>
             </motion.div>
@@ -176,12 +177,12 @@ export function HeroSection() {
 
               {/* Floating Verified Badge */}
               <div className="absolute -bottom-3 -left-3 px-3.5 py-1.5 rounded-xl bg-card border border-border shadow-xl flex items-center gap-2 text-xs font-mono text-foreground backdrop-blur-md">
-                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" aria-hidden="true" />
                 <span>Deterministic Edge Execution</span>
               </div>
 
               <div className="absolute -top-3 -right-3 px-3.5 py-1.5 rounded-xl bg-card border border-border shadow-xl flex items-center gap-2 text-xs font-mono text-primary backdrop-blur-md">
-                <Sparkles className="w-3.5 h-3.5" />
+                <Sparkles className="w-3.5 h-3.5" aria-hidden="true" />
                 <span>Model Context Protocol (MCP)</span>
               </div>
             </div>
