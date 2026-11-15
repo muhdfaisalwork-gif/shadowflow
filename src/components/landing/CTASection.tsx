@@ -103,7 +103,7 @@ export function CTASection() {
         >
           {/* Badge */}
           <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full glass border border-primary/30">
-            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" aria-hidden="true" />
             <span className="text-xs font-semibold text-foreground font-mono">
               Apache License 2.0 • 100% Free & Self-Hostable
             </span>

@@ -43,11 +43,13 @@ export function IntegrationsSection() {
   const [selectedCategory, setSelectedCategory] = useState<string>("All");
   const [searchQuery, setSearchQuery] = useState("");
 
+  const normalizedQuery = searchQuery.trim().toLowerCase();
   const filteredIntegrations = allIntegrations.filter((item) => {
     const matchesCat = selectedCategory === "All" || item.category === selectedCategory;
     const matchesSearch =
-      item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      item.description.toLowerCase().includes(searchQuery.toLowerCase());
+      !normalizedQuery ||
+      item.name.toLowerCase().includes(normalizedQuery) ||
+      item.description.toLowerCase().includes(normalizedQuery);
     return matchesCat && matchesSearch;
   });
 
@@ -93,7 +95,7 @@ export function IntegrationsSection() {
             <div className="relative w-full sm:w-64">
               <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
               <input
-                type="text"
+                type="search"
                 aria-label="Search integrations"
                 placeholder="Search integrations..."
                 value={searchQuery}
@@ -133,40 +135,59 @@ export function IntegrationsSection() {
         </div>
 
         {/* Integrations Grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-          <AnimatePresence>
-            {filteredIntegrations.map((item) => (
-              <motion.div
-                key={item.name}
-                initial={{ opacity: 0, scale: 0.96 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.96 }}
-                transition={{ duration: 0.15 }}
-                className="p-4 rounded-xl border border-border/80 bg-card/60 hover:bg-card hover:border-primary/50 transition-all shadow-sm hover:shadow-md flex flex-col justify-between"
-              >
-                <div>
-                  <div className="flex items-center justify-between gap-2 mb-2">
-                    <span className="text-2xl" aria-hidden="true">{item.icon}</span>
-                    <Badge variant="outline" className="text-[10px] font-mono text-muted-foreground bg-muted/30">
-                      {item.category}
-                    </Badge>
+        {filteredIntegrations.length > 0 ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+            <AnimatePresence>
+              {filteredIntegrations.map((item) => (
+                <motion.div
+                  key={item.name}
+                  initial={{ opacity: 0, scale: 0.96 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.96 }}
+                  transition={{ duration: 0.15 }}
+                  className="p-4 rounded-xl border border-border/80 bg-card/60 hover:bg-card hover:border-primary/50 transition-all shadow-sm hover:shadow-md flex flex-col justify-between"
+                >
+                  <div>
+                    <div className="flex items-center justify-between gap-2 mb-2">
+                      <span className="text-2xl" aria-hidden="true">{item.icon}</span>
+                      <Badge variant="outline" className="text-[10px] font-mono text-muted-foreground bg-muted/30">
+                        {item.category}
+                      </Badge>
+                    </div>
+                    <h3 className="font-bold text-sm text-foreground mb-1">
+                      {item.name}
+                    </h3>
+                    <p className="text-xs text-muted-foreground leading-relaxed">
+                      {item.description}
+                    </p>
                   </div>
-                  <h3 className="font-bold text-sm text-foreground mb-1">
-                    {item.name}
-                  </h3>
-                  <p className="text-xs text-muted-foreground leading-relaxed">
-                    {item.description}
-                  </p>
-                </div>
 
-                <div className="mt-4 pt-2 border-t border-border/40 flex items-center justify-between text-[11px] font-mono text-muted-foreground">
-                  <span>Protocol: REST / MCP</span>
-                  <span className="text-emerald-400 font-semibold">Active</span>
-                </div>
-              </motion.div>
-            ))}
-          </AnimatePresence>
-        </div>
+                  <div className="mt-4 pt-2 border-t border-border/40 flex items-center justify-between text-[11px] font-mono text-muted-foreground">
+                    <span>Protocol: REST / MCP</span>
+                    <span className="text-emerald-400 font-semibold">Active</span>
+                  </div>
+                </motion.div>
+              ))}
+            </AnimatePresence>
+          </div>
+        ) : (
+          <div className="text-center py-12 px-4 rounded-2xl border border-border/60 bg-card/40">
+            <p className="text-sm text-muted-foreground mb-4">
+              No matching integrations found{searchQuery.trim() ? ` for "${searchQuery.trim()}"` : ""}.
+            </p>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setSelectedCategory("All");
+                setSearchQuery("");
+              }}
+            >
+              Reset Filters
+            </Button>
+          </div>
+        )}
 
         {/* Bottom CTA */}
         <div className="mt-12 text-center">
