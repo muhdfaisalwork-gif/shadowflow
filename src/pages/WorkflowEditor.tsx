@@ -47,6 +47,11 @@ const WorkflowEditor: FC = () => {
     }
   }, [searchParams, setAIAssistantOpen]);
 
+  useEffect(() => {
+    const title = workflow?.name ? `${workflow.name} | ShadowFlow Studio` : 'Workflow Studio | ShadowFlow';
+    document.title = title;
+  }, [workflow?.name]);
+
   const loadWorkflow = useCallback(async () => {
     if (demo) {
       if (id && id !== 'new') {

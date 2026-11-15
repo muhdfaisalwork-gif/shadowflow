@@ -58,6 +58,10 @@ const Settings: FC = () => {
   const [subscription, setSubscription] = useState(getStoredSubscription());
   const [licenseKeyInput, setLicenseKeyInput] = useState('');
 
+  useEffect(() => {
+    document.title = 'Account Settings & API Credentials | ShadowFlow';
+  }, []);
+
   const activeUser = user || {
     id: 'demo-user-001',
     email: 'demo@shadowflow.work',

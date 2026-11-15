@@ -50,6 +50,10 @@ const Dashboard: FC = () => {
 
   const linkPrefix = demo ? '/demo' : '';
 
+  useEffect(() => {
+    document.title = demo ? 'Live Demo Dashboard | ShadowFlow' : 'Workflow Dashboard | ShadowFlow';
+  }, [demo]);
+
   const handleBuildWithAI = (promptText?: string) => {
     const text = (promptText || aiPrompt).trim();
     if (!text) {
