@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Header } from "@/components/landing/Header";
 import { Footer } from "@/components/landing/Footer";
 import { Button } from "@/components/ui/button";
@@ -22,17 +22,27 @@ export default function Partners() {
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  const submitTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (submitTimerRef.current !== null) {
+        window.clearTimeout(submitTimerRef.current);
+      }
+    };
+  }, []);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!partnerForm.company || !partnerForm.email) {
+    if (!partnerForm.company.trim() || !partnerForm.email.trim()) {
       toast.error("Please fill in company name and email.");
       return;
     }
     setIsSubmitting(true);
-    setTimeout(() => {
+    submitTimerRef.current = window.setTimeout(() => {
       setIsSubmitting(false);
       setSubmitted(true);
+      submitTimerRef.current = null;
       toast.success("Partner application received! We'll be in touch.");
     }, 700);
   };
@@ -135,7 +145,7 @@ export default function Partners() {
             </div>
 
             {submitted ? (
-              <div className="py-8 text-center space-y-3">
+              <div role="status" className="py-8 text-center space-y-3">
                 <CheckCircle2 className="w-12 h-12 text-emerald-500 mx-auto" aria-hidden="true" />
                 <h3 className="text-lg font-bold">Application Received!</h3>
                 <p className="text-xs text-muted-foreground">

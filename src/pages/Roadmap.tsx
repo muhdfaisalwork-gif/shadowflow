@@ -130,7 +130,7 @@ export default function Roadmap() {
           {/* Header */}
           <div className="text-center max-w-3xl mx-auto mb-16">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 border border-primary/20 text-primary text-xs font-semibold mb-4">
-              <Compass className="w-3.5 h-3.5" />
+              <Compass className="w-3.5 h-3.5" aria-hidden="true" />
               Transparent Public Roadmap
             </div>
             <h1 className="text-4xl sm:text-5xl font-extrabold tracking-tight mb-4">
