@@ -83,7 +83,7 @@ export function SponsorshipModal({ open, onOpenChange }: SponsorshipModalProps) 
         <DialogHeader className="text-left space-y-3 pb-4 border-b border-border">
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant="outline" className="border-primary/40 bg-primary/10 text-primary text-xs font-semibold px-2.5 py-0.5">
-              <Sparkles className="w-3.5 h-3.5 mr-1" />
+              <Sparkles className="w-3.5 h-3.5 mr-1" aria-hidden="true" />
               2026 Ecosystem & Grant Partnerships
             </Badge>
             <span className="text-xs text-muted-foreground">Open-Source Apache 2.0 Automation</span>
@@ -105,7 +105,7 @@ export function SponsorshipModal({ open, onOpenChange }: SponsorshipModalProps) 
               className="gap-2 bg-primary text-primary-foreground hover:bg-primary/90 text-xs font-medium"
             >
               <a href="/ShadowFlow_Sponsorship_Deck.pptx" download="ShadowFlow_Sponsorship_Deck.pptx">
-                <Download className="w-3.5 h-3.5" />
+                <Download className="w-3.5 h-3.5" aria-hidden="true" />
                 Download Sponsorship Deck (.pptx)
               </a>
             </Button>
@@ -117,7 +117,7 @@ export function SponsorshipModal({ open, onOpenChange }: SponsorshipModalProps) 
               className="gap-2 text-xs font-medium border-border hover:bg-muted"
             >
               <a href="/ShadowFlow_Investor_Pitch_Deck.pptx" download="ShadowFlow_Investor_Pitch_Deck.pptx">
-                <Download className="w-3.5 h-3.5" />
+                <Download className="w-3.5 h-3.5" aria-hidden="true" />
                 Investor Deck (.pptx)
               </a>
             </Button>
@@ -129,7 +129,7 @@ export function SponsorshipModal({ open, onOpenChange }: SponsorshipModalProps) 
               className="gap-1.5 text-xs text-muted-foreground hover:text-foreground"
             >
               <a href="https://github.com/muhdfaisalwork-gif/shadowflow" target="_blank" rel="noopener noreferrer">
-                <Github className="w-3.5 h-3.5" /> GitHub Repo <ExternalLink className="w-3 h-3 ml-0.5" />
+                <Github className="w-3.5 h-3.5" aria-hidden="true" /> GitHub Repo <ExternalLink className="w-3 h-3 ml-0.5" aria-hidden="true" />
               </a>
             </Button>
           </div>
@@ -144,7 +144,7 @@ export function SponsorshipModal({ open, onOpenChange }: SponsorshipModalProps) 
                 <CardContent className="p-5 space-y-4">
                   <div className="flex items-center justify-between">
                     <div className="w-9 h-9 rounded-lg bg-background/80 border border-border flex items-center justify-center text-primary">
-                      <Icon className="w-4 h-4" />
+                      <Icon className="w-4 h-4" aria-hidden="true" />
                     </div>
                     <Badge variant="secondary" className="text-[10px] font-medium">
                       {tier.badge}
@@ -169,7 +169,7 @@ export function SponsorshipModal({ open, onOpenChange }: SponsorshipModalProps) 
                     <ul className="space-y-1.5 text-xs text-muted-foreground">
                       {tier.deliverables.map((item, idx) => (
                         <li key={idx} className="flex items-start gap-1.5 leading-snug">
-                          <CheckCircle2 className="w-3.5 h-3.5 text-primary shrink-0 mt-0.5" />
+                          <CheckCircle2 className="w-3.5 h-3.5 text-primary shrink-0 mt-0.5" aria-hidden="true" />
                           <span>{item}</span>
                         </li>
                       ))}
@@ -189,7 +189,7 @@ export function SponsorshipModal({ open, onOpenChange }: SponsorshipModalProps) 
                         `Hi Shadow Flow Team,\n\nWe would like to partner with Shadow Flow under the ${tier.name}.\n\nCompany / Organization:\nContact Name:\nProposed Goals:\n\nBest regards,`
                       )}`}
                     >
-                      <Mail className="w-3.5 h-3.5" />
+                      <Mail className="w-3.5 h-3.5" aria-hidden="true" />
                       {tier.buttonText}
                     </a>
                   </Button>
@@ -202,7 +202,7 @@ export function SponsorshipModal({ open, onOpenChange }: SponsorshipModalProps) 
         {/* Footer Contact Callout */}
         <div className="rounded-xl border border-border bg-muted/40 p-4 sm:p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <div>
-            <h4 className="font-bold text-sm text-foreground">Need Custom Terms or Grant Alignments?</h4>
+            <h3 className="font-bold text-sm text-foreground">Need Custom Terms or Grant Alignments?</h3>
             <p className="text-xs text-muted-foreground mt-0.5">
               We also support enterprise grant partnerships, custom hardware sponsorships, and research agreements.
             </p>
@@ -210,7 +210,7 @@ export function SponsorshipModal({ open, onOpenChange }: SponsorshipModalProps) 
           <div className="flex items-center gap-2">
             <Button asChild size="sm" className="gap-1.5 text-xs">
               <a href="mailto:sponsor@shadowflow.work?subject=Custom%20Sponsorship%20or%20Grant%20Inquiry">
-                <Mail className="w-3.5 h-3.5" /> Contact sponsor@shadowflow.work <ArrowRight className="w-3.5 h-3.5" />
+                <Mail className="w-3.5 h-3.5" aria-hidden="true" /> Contact sponsor@shadowflow.work <ArrowRight className="w-3.5 h-3.5" aria-hidden="true" />
               </a>
             </Button>
           </div>
