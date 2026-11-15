@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { Link } from "react-router-dom";
 import { Header } from "@/components/landing/Header";
 import { Footer } from "@/components/landing/Footer";
@@ -18,6 +19,9 @@ import {
 } from "lucide-react";
 
 export default function Features() {
+  useEffect(() => {
+    document.title = "Platform Features & Capabilities | ShadowFlow";
+  }, []);
   const featureList = [
     {
       icon: Workflow,

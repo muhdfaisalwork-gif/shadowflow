@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { Header } from "@/components/landing/Header";
 import { Footer } from "@/components/landing/Footer";
 import { Button } from "@/components/ui/button";
@@ -59,6 +60,9 @@ const apacheLicenseText = `                                 Apache License
    END OF TERMS AND CONDITIONS`;
 
 export default function License() {
+  useEffect(() => {
+    document.title = "License (Apache 2.0) | ShadowFlow";
+  }, []);
   return (
     <div className="min-h-screen bg-background text-foreground flex flex-col">
       <Header />

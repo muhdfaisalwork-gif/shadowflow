@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { Header } from "@/components/landing/Header";
 import { Footer } from "@/components/landing/Footer";
 import { Button } from "@/components/ui/button";
@@ -12,6 +13,9 @@ import {
 } from "lucide-react";
 
 export default function Community() {
+  useEffect(() => {
+    document.title = "Community & Open Source | ShadowFlow";
+  }, []);
   const communityChannels = [
     {
       name: "GitHub Repository",

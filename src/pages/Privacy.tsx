@@ -1,8 +1,12 @@
+import { useEffect } from "react";
 import { Header } from "@/components/landing/Header";
 import { Footer } from "@/components/landing/Footer";
 import { ShieldCheck, Lock } from "lucide-react";
 
 export default function Privacy() {
+  useEffect(() => {
+    document.title = "Privacy Policy | ShadowFlow";
+  }, []);
   return (
     <div className="min-h-screen bg-background text-foreground flex flex-col">
       <Header />
