@@ -5,17 +5,8 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
-  Users,
-  Database,
-  Mail,
-  Zap,
   ArrowRight,
-  ShieldCheck,
   CheckCircle2,
-  TrendingUp,
-  Cpu,
-  BarChart3,
-  Layers,
 } from "lucide-react";
 
 export default function UseCaseSalesLeadAutomation() {
@@ -172,7 +163,7 @@ export default function UseCaseSalesLeadAutomation() {
                     </td>
                     <td className="p-4 font-semibold text-foreground bg-primary/5">
                       <span className="flex items-center gap-1.5">
-                        <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
+                        <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" aria-hidden="true" />
                         {b.shadowflow}
                       </span>
                     </td>
@@ -222,16 +213,16 @@ export async function handleInboundLead(request: Request, env: Env): Promise<Res
             Explore ready-to-run templates in the ShadowFlow template library or build a custom DAG in the visual canvas.
           </p>
           <div className="flex flex-wrap items-center justify-center gap-3">
-            <Link to="/demo">
-              <Button className="gap-2">
-                Launch Live Canvas <ArrowRight className="w-4 h-4" />
-              </Button>
-            </Link>
-            <Link to="/compare/shadowflow-vs-zapier-vs-n8n">
-              <Button variant="outline">
+            <Button asChild className="gap-2">
+              <Link to="/demo">
+                Launch Live Canvas <ArrowRight className="w-4 h-4" aria-hidden="true" />
+              </Link>
+            </Button>
+            <Button asChild variant="outline">
+              <Link to="/compare/shadowflow-vs-zapier-vs-n8n">
                 See Pricing &amp; Competitor Comparison
-              </Button>
-            </Link>
+              </Link>
+            </Button>
           </div>
         </section>
       </main>

@@ -106,25 +106,25 @@ export default function UseCaseSocialMediaAgents() {
           <Card className="border-border bg-card">
             <CardHeader>
               <CardTitle className="text-base font-semibold flex items-center gap-2">
-                <ShieldCheck className="w-5 h-5 text-emerald-500" />
+                <ShieldCheck className="w-5 h-5 text-emerald-500" aria-hidden="true" />
                 Key Operational Safeguards
               </CardTitle>
             </CardHeader>
             <CardContent className="grid sm:grid-cols-2 gap-4 text-xs md:text-sm text-muted-foreground">
               <div className="flex items-start gap-2">
-                <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
+                <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" aria-hidden="true" />
                 <span>Human-like bezier curve mouse movement and random typing delays</span>
               </div>
               <div className="flex items-start gap-2">
-                <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
+                <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" aria-hidden="true" />
                 <span>Persistent encrypted session storage (no repeated OTP / 2FA prompts)</span>
               </div>
               <div className="flex items-start gap-2">
-                <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
+                <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" aria-hidden="true" />
                 <span>Human-in-the-loop Slack/Telegram approval nodes before live publishing</span>
               </div>
               <div className="flex items-start gap-2">
-                <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
+                <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" aria-hidden="true" />
                 <span>Zero telemetry execution with client-side credential isolation</span>
               </div>
             </CardContent>
@@ -192,16 +192,16 @@ export default function UseCaseSocialMediaAgents() {
             Test the live DAG editor in your browser. Connect webhooks, test AI reasoning nodes, and export production workflows.
           </p>
           <div className="flex flex-wrap items-center justify-center gap-3">
-            <Link to="/demo">
-              <Button className="gap-2">
-                Open Visual Canvas <ArrowRight className="w-4 h-4" />
-              </Button>
-            </Link>
-            <Link to="/compare/shadowflow-vs-zapier-vs-n8n">
-              <Button variant="outline">
+            <Button asChild className="gap-2">
+              <Link to="/demo">
+                Open Visual Canvas <ArrowRight className="w-4 h-4" aria-hidden="true" />
+              </Link>
+            </Button>
+            <Button asChild variant="outline">
+              <Link to="/compare/shadowflow-vs-zapier-vs-n8n">
                 Compare Against Zapier &amp; n8n
-              </Button>
-            </Link>
+              </Link>
+            </Button>
           </div>
         </section>
       </main>
