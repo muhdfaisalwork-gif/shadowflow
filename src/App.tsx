@@ -46,8 +46,16 @@ const UseCaseSocialMediaAgents = lazy(() => import("./pages/UseCaseSocialMediaAg
 const UseCaseSalesLeadAutomation = lazy(() => import("./pages/UseCaseSalesLeadAutomation"));
 
 const PageFallback = () => (
-  <div className="min-h-screen flex items-center justify-center bg-background text-muted-foreground">
-    <div className="w-6 h-6 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+  <div
+    role="status"
+    aria-label="Loading page"
+    className="min-h-screen flex items-center justify-center bg-background text-muted-foreground"
+  >
+    <div
+      className="w-6 h-6 rounded-full border-2 border-primary border-t-transparent animate-spin"
+      aria-hidden="true"
+    />
+    <span className="sr-only">Loading page content...</span>
   </div>
 );
 

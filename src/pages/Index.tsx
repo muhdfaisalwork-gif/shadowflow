@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { Header } from "@/components/landing/Header";
 import { HeroSection } from "@/components/landing/HeroSection";
 import { InteractiveWorkflowStudio } from "@/components/landing/InteractiveWorkflowStudio";
@@ -10,6 +11,10 @@ import { CTASection } from "@/components/landing/CTASection";
 import { Footer } from "@/components/landing/Footer";
 
 const Index = () => {
+  useEffect(() => {
+    document.title = "ShadowFlow | Sovereign Visual DAG & AI Agent Workflow Studio";
+  }, []);
+
   return (
     <div className="min-h-screen bg-background text-foreground relative selection:bg-primary/20 selection:text-primary">
       <Header />

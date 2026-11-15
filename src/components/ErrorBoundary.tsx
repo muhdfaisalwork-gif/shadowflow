@@ -33,10 +33,10 @@ export class ErrorBoundary extends Component<Props, State> {
   render() {
     if (this.state.hasError) {
       return (
-        <div className="min-h-[300px] flex items-center justify-center p-8">
+        <div role="alert" className="min-h-[300px] flex items-center justify-center p-8">
           <div className="text-center space-y-4 max-w-md">
             <div className="mx-auto w-12 h-12 rounded-full bg-destructive/10 flex items-center justify-center">
-              <AlertTriangle className="w-6 h-6 text-destructive" />
+              <AlertTriangle className="w-6 h-6 text-destructive" aria-hidden="true" />
             </div>
             <h2 className="text-lg font-semibold">Something went wrong</h2>
             <p className="text-sm text-muted-foreground">
@@ -47,8 +47,8 @@ export class ErrorBoundary extends Component<Props, State> {
                 {this.state.error.message}
               </pre>
             )}
-            <Button onClick={this.handleReset} variant="outline" className="gap-2">
-              <RefreshCw className="w-4 h-4" />
+            <Button type="button" onClick={this.handleReset} variant="outline" className="gap-2">
+              <RefreshCw className="w-4 h-4" aria-hidden="true" />
               Try Again
             </Button>
           </div>
