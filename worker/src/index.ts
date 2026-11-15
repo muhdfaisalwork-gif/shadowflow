@@ -56,7 +56,13 @@ const ALLOWED_ORIGINS = [
 
 function getCorsHeaders(request: Request): HeadersInit {
   const origin = request.headers.get('Origin') || '';
-  const allowOrigin = ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0];
+  const isAllowed =
+    ALLOWED_ORIGINS.includes(origin) ||
+    /^https:\/\/[a-z0-9-]+\.shadowflow-kdy\.pages\.dev$/i.test(origin) ||
+    /^http:\/\/localhost:[0-9]+$/i.test(origin) ||
+    /^http:\/\/127\.0\.0\.1:[0-9]+$/i.test(origin);
+
+  const allowOrigin = isAllowed ? origin : ALLOWED_ORIGINS[0];
 
   return {
     'Access-Control-Allow-Origin': allowOrigin,
