@@ -105,7 +105,7 @@ export function Header() {
               {user ? (
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
-                    <Button variant="ghost" size="sm" className="gap-2">
+                    <Button type="button" variant="ghost" size="sm" className="gap-2">
                       <Avatar className="w-6 h-6">
                         <AvatarFallback className="text-xs">{initials}</AvatarFallback>
                       </Avatar>
@@ -218,12 +218,13 @@ export function Header() {
                         <Link to="/dashboard">Go to Dashboard</Link>
                       </Button>
                       <Button 
+                        type="button"
                         variant="outline" 
                         size="sm" 
                         className="justify-center text-destructive"
                         onClick={handleSignOut}
                       >
-                        <LogOut className="w-4 h-4 mr-2" />
+                        <LogOut className="w-4 h-4 mr-2" aria-hidden="true" />
                         Sign Out
                       </Button>
                     </>
