@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { Link } from "react-router-dom";
 import { Header } from "@/components/landing/Header";
 import { Footer } from "@/components/landing/Footer";
@@ -10,6 +11,9 @@ import {
 } from "lucide-react";
 
 export default function UseCaseSalesLeadAutomation() {
+  useEffect(() => {
+    document.title = "Sales Lead Enrichment & Autonomous Ingestion | ShadowFlow";
+  }, []);
   const pipelineStages = [
     {
       stage: "Stage 1",

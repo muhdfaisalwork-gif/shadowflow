@@ -54,6 +54,14 @@ const SharedWorkflow: FC = () => {
     }
   }, [token, fetchWorkflow]);
 
+  useEffect(() => {
+    if (workflow?.name) {
+      document.title = `${workflow.name} (Shared Workflow) | ShadowFlow`;
+    } else {
+      document.title = 'Shared Workflow | ShadowFlow';
+    }
+  }, [workflow?.name]);
+
   const handleImport = async () => {
     if (!workflow || !user) {
       if (!user) {

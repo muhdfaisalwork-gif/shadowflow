@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { Header } from "@/components/landing/Header";
 import { Footer } from "@/components/landing/Footer";
@@ -22,6 +22,10 @@ interface DocSection {
 }
 
 export default function Docs() {
+  useEffect(() => {
+    document.title = "Developer Documentation & Quickstart | ShadowFlow";
+  }, []);
+
   const [activeSectionId, setActiveSectionId] = useState<string>("quickstart");
   const [searchFilter, setSearchFilter] = useState("");
 

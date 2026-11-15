@@ -19,6 +19,10 @@ const VerifyEmail: FC = () => {
   const requested = useRef(false);
 
   useEffect(() => {
+    document.title = 'Verify Email | ShadowFlow';
+  }, []);
+
+  useEffect(() => {
     if (!token || requested.current) return;
     requested.current = true;
 

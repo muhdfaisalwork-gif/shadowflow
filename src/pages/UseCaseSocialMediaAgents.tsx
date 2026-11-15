@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { Link } from "react-router-dom";
 import { Header } from "@/components/landing/Header";
 import { Footer } from "@/components/landing/Footer";
@@ -11,6 +12,9 @@ import {
 } from "lucide-react";
 
 export default function UseCaseSocialMediaAgents() {
+  useEffect(() => {
+    document.title = "Autonomous Social Media & Technical News Agents | ShadowFlow";
+  }, []);
   const steps = [
     {
       num: "01",

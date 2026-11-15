@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { Header } from "@/components/landing/Header";
 import { Footer } from "@/components/landing/Footer";
@@ -106,6 +106,10 @@ const endpoints: Endpoint[] = [
 ];
 
 export default function ApiReference() {
+  useEffect(() => {
+    document.title = "REST API & Webhook Reference | ShadowFlow";
+  }, []);
+
   const [selectedEndpoint, setSelectedEndpoint] = useState<Endpoint>(endpoints[0]);
 
   return (

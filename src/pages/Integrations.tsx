@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { Header } from "@/components/landing/Header";
 import { Footer } from "@/components/landing/Footer";
@@ -63,6 +63,10 @@ const integrationsData: IntegrationItem[] = [
 ];
 
 export default function Integrations() {
+  useEffect(() => {
+    document.title = "Ecosystem Integrations & MCP Protocols | ShadowFlow";
+  }, []);
+
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string>("All");
 

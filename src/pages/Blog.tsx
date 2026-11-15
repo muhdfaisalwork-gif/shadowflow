@@ -26,6 +26,7 @@ export default function Blog() {
   const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
+    document.title = "Engineering Blog & Technical Insights | ShadowFlow";
     let isMounted = true;
     setIsLoading(true);
     fetchDynamicBlogs()
