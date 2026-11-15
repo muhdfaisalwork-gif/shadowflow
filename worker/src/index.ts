@@ -2359,34 +2359,57 @@ Write the full article now in Markdown.`;
     }
 
     // Safe execution step evaluator & DAG execution endpoint
-    if ((url.pathname === '/api/execute' || url.pathname === '/api/execute-step') && request.method === 'POST') {
-      try {
-        const body = (await request.json()) as {
-          operation?: string;
-          input?: unknown;
-          workflowId?: string;
-          nodes?: unknown[];
-          edges?: unknown[];
-        };
-        const nodesCount = Array.isArray(body.nodes) ? body.nodes.length : 0;
-        const edgesCount = Array.isArray(body.edges) ? body.edges.length : 0;
-
+    if (url.pathname === '/api/execute' || url.pathname === '/api/execute-step') {
+      if (request.method === 'GET') {
         return jsonResponse(
           {
-            success: true,
-            operation: body.operation || (url.pathname === '/api/execute' ? 'dag-execution' : 'pass-through'),
-            workflowId: body.workflowId || null,
-            nodesCount,
-            edgesCount,
-            output: body.input ?? { status: 'completed', stepsExecuted: nodesCount || 1 },
-            processedAt: new Date().toISOString(),
+            endpoint: url.pathname,
+            service: 'Shadow Flow Edge DAG and Step Execution Engine',
+            methods: ['POST', 'OPTIONS'],
+            expectedPayload: {
+              workflowId: 'string (optional)',
+              nodes: 'array of node definitions',
+              edges: 'array of DAG connections',
+              input: 'object payload (optional)',
+              operation: 'string (optional, e.g. dag-execution, pass-through)',
+            },
+            status: 'ready',
+            version: '2.0.0',
           },
           200,
           request
         );
-      } catch (err: unknown) {
-        const message = err instanceof Error ? err.message : String(err);
-        return jsonResponse({ error: 'Execution failed', details: message }, 400, request);
+      }
+
+      if (request.method === 'POST') {
+        try {
+          const body = (await request.json()) as {
+            operation?: string;
+            input?: unknown;
+            workflowId?: string;
+            nodes?: unknown[];
+            edges?: unknown[];
+          };
+          const nodesCount = Array.isArray(body.nodes) ? body.nodes.length : 0;
+          const edgesCount = Array.isArray(body.edges) ? body.edges.length : 0;
+
+          return jsonResponse(
+            {
+              success: true,
+              operation: body.operation || (url.pathname === '/api/execute' ? 'dag-execution' : 'pass-through'),
+              workflowId: body.workflowId || null,
+              nodesCount,
+              edgesCount,
+              output: body.input ?? { status: 'completed', stepsExecuted: nodesCount || 1 },
+              processedAt: new Date().toISOString(),
+            },
+            200,
+            request
+          );
+        } catch (err: unknown) {
+          const message = err instanceof Error ? err.message : String(err);
+          return jsonResponse({ error: 'Execution failed', details: message }, 400, request);
+        }
       }
     }
 
