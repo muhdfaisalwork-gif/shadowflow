@@ -26,6 +26,7 @@
 
 ## Technical Engineering Blog
 
+- [Activepieces vs Shadow Flow: Comparing Apache 2.0 Visual Engines in 2026](https://shadowflow.work/blog/activepieces-vs-shadow-flow-open-source-visual-automation-2026): An objective benchmark comparing Docker-based container execution versus edge serverless runtimes for open-source visual automation.
 - [Multi-Tenant Data Isolation in Self-Hosted Automation Platforms: A Practical Security Model](https://shadowflow.work/blog/multi-tenant-data-isolation-self-hosted-automation): Designing schema-level isolation, encrypted credential vaults, and role-based access control for team-shared visual workflow engines.
 - [Automating CI/CD Triage with GitHub Webhooks and Event-Driven AI Agents](https://shadowflow.work/blog/automating-cicd-triage-github-webhooks-ai-agents): How engineering teams capture failing test logs, pinpoint breaking git commits, and post suggested patches to pull requests automatically.
 - [Building Event-Driven Slack Automation on Edge Workers with Sub-50ms Response Times](https://shadowflow.work/blog/building-event-driven-slack-automation-edge-workers): Architecting interactive Slack command bots that acknowledge webhooks in under 3 seconds and stream multi-agent execution steps in real time.
