@@ -26,6 +26,7 @@
 
 ## Technical Engineering Blog
 
+- [Production Playbook for Real-Time Financial Fraud Detection Pipelines Using Model Context Protocol and Visual DAGs](https://shadowflow.work/blog/production-playbook-for-real-time-financial-fraud-detection-pipel): An architectural engineering guide detailing how to build real-time financial fraud detection pipelines with low latency, clear boundaries, and deterministic visual DAG execution.
 - [How to Build Real-Time Financial Fraud Detection Pipelines with Sub-50ms Latency on Serverless Edge](https://shadowflow.work/blog/how-to-build-real-time-financial-fraud-detection-pipelines-with-s): An architectural engineering guide detailing how to build real-time financial fraud detection pipelines with low latency, clear boundaries, and deterministic visual DAG execution.
 - [Activepieces vs Shadow Flow: Comparing Apache 2.0 Visual Engines in 2026](https://shadowflow.work/blog/activepieces-vs-shadow-flow-open-source-visual-automation-2026): An objective benchmark comparing Docker-based container execution versus edge serverless runtimes for open-source visual automation.
 - [Multi-Tenant Data Isolation in Self-Hosted Automation Platforms: A Practical Security Model](https://shadowflow.work/blog/multi-tenant-data-isolation-self-hosted-automation): Designing schema-level isolation, encrypted credential vaults, and role-based access control for team-shared visual workflow engines.
