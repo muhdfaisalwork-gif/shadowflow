@@ -67,7 +67,7 @@ function getCorsHeaders(request: Request): HeadersInit {
   return {
     'Access-Control-Allow-Origin': allowOrigin,
     'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Requested-With',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Requested-With, X-ShadowFlow-Signature, X-ShadowFlow-Timestamp',
     'Access-Control-Max-Age': '86400',
     'Vary': 'Origin',
   };
@@ -256,12 +256,16 @@ type DagExecResult =
       cycleNodes?: string[];
     };
 
+const UNSAFE_OBJECT_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+
 function getByDotPath(obj: unknown, path: string): unknown {
   if (!path || obj === null || typeof obj !== 'object') return undefined;
   const parts = path.split('.').filter(Boolean);
   let cur: unknown = obj;
   for (const part of parts) {
+    if (UNSAFE_OBJECT_KEYS.has(part)) return undefined;
     if (cur === null || typeof cur !== 'object') return undefined;
+    if (!Object.prototype.hasOwnProperty.call(cur, part)) return undefined;
     cur = (cur as Record<string, unknown>)[part];
   }
   return cur;
@@ -283,6 +287,9 @@ function evaluateCondition(
   if (op === 'exists') {
     return actual !== undefined && actual !== null && actual !== '';
   }
+  if (op === 'not_exists') {
+    return actual === undefined || actual === null || actual === '';
+  }
   if (op === 'eq' || op === '==' || op === '===') {
     return actual === expected || String(actual) === String(expected);
   }
@@ -300,6 +307,27 @@ function evaluateCondition(
     if (typeof actual === 'string') return actual.includes(String(expected ?? ''));
     if (Array.isArray(actual)) return actual.includes(expected);
     return false;
+  }
+  if (op === 'not_contains') {
+    if (typeof actual === 'string') return !actual.includes(String(expected ?? ''));
+    if (Array.isArray(actual)) return !actual.includes(expected);
+    return true;
+  }
+  if (op === 'starts_with') {
+    return typeof actual === 'string' && actual.startsWith(String(expected ?? ''));
+  }
+  if (op === 'ends_with') {
+    return typeof actual === 'string' && actual.endsWith(String(expected ?? ''));
+  }
+  if (op === 'in') {
+    const items = Array.isArray(expected)
+      ? expected
+      : typeof expected === 'string'
+        ? expected.split(',').map((s) => s.trim())
+        : [];
+    return items.some(
+      (item) => item === actual || (actual !== undefined && actual !== null && String(item) === String(actual))
+    );
   }
   return Boolean(actual);
 }
@@ -411,6 +439,7 @@ function executeDagGraph(
 
     let output: unknown;
     let routeBranch: 'true' | 'false' | null = null;
+    let routeHandles: Set<string> | null = null;
 
     if (nodeType === 'trigger' || nodeType === 'webhook' || nodeType === 'manual' || nodeType === 'schedule') {
       output = currentInput;
@@ -426,6 +455,7 @@ function executeDagGraph(
             ? { ...(currentInput as Record<string, unknown>) }
             : {};
         for (const [k, v] of Object.entries(mapping)) {
+          if (UNSAFE_OBJECT_KEYS.has(k)) continue;
           base[k] = typeof v === 'string' ? interpolateTemplate(v, currentInput) : v;
         }
         output = base;
@@ -447,6 +477,76 @@ function executeDagGraph(
       const matched = evaluateCondition(actual, operator, expected);
       routeBranch = matched ? 'true' : 'false';
       output = { matched, branch: routeBranch, field, actual, data: currentInput };
+    } else if (nodeType === 'switch' || nodeType === 'router') {
+      const field = String(cfg.field || '');
+      const actual = field ? getByDotPath(currentInput, field) : currentInput;
+      let matchedCase = 'default';
+      routeHandles = new Set(['default', 'fallback', 'output_default']);
+
+      if (Array.isArray(cfg.cases)) {
+        for (let idx = 0; idx < cfg.cases.length; idx++) {
+          const c = cfg.cases[idx];
+          if (!c || typeof c !== 'object' || Array.isArray(c)) continue;
+          const item = c as { value?: unknown; handle?: unknown; operator?: unknown };
+          const op = typeof item.operator === 'string' ? item.operator : 'eq';
+          if (evaluateCondition(actual, op, item.value)) {
+            const explicitHandle = typeof item.handle === 'string' ? item.handle.trim().toLowerCase() : '';
+            matchedCase = explicitHandle || `case_${idx}`;
+            routeHandles = explicitHandle
+              ? new Set([explicitHandle])
+              : new Set([`case_${idx}`, `output_${idx}`]);
+            break;
+          }
+        }
+      } else if (cfg.cases && typeof cfg.cases === 'object') {
+        for (const [key, val] of Object.entries(cfg.cases as Record<string, unknown>)) {
+          if (UNSAFE_OBJECT_KEYS.has(key)) continue;
+          if (evaluateCondition(actual, 'eq', val)) {
+            matchedCase = key.toLowerCase();
+            routeHandles = new Set([matchedCase]);
+            break;
+          }
+        }
+      }
+
+      output = { field, actual, matchedCase, data: currentInput };
+    } else if (nodeType === 'pick' || nodeType === 'select') {
+      const keys = Array.isArray(cfg.keys) ? cfg.keys : [];
+      const picked: Record<string, unknown> = {};
+      for (const rawKey of keys) {
+        if (typeof rawKey !== 'string') continue;
+        const path = rawKey.trim();
+        if (!path) continue;
+        const segments = path.split('.').filter(Boolean);
+        const leafKey = segments[segments.length - 1];
+        if (!leafKey || UNSAFE_OBJECT_KEYS.has(leafKey)) continue;
+        const val = getByDotPath(currentInput, path);
+        if (val !== undefined) {
+          picked[leafKey] = val;
+        }
+      }
+      output = picked;
+    } else if (nodeType === 'json-parse' || nodeType === 'parse-json') {
+      const field = typeof cfg.field === 'string' ? cfg.field.trim() : '';
+      const rawVal = field ? getByDotPath(currentInput, field) : currentInput;
+      const parsed = typeof rawVal === 'string' ? safeJsonParse<unknown>(rawVal, null) : (rawVal ?? null);
+      if (field) {
+        const rawOut = typeof cfg.outputField === 'string' ? cfg.outputField.trim() : '';
+        const outKey =
+          rawOut && !UNSAFE_OBJECT_KEYS.has(rawOut)
+            ? rawOut
+            : !field.includes('.') && !UNSAFE_OBJECT_KEYS.has(field)
+              ? field
+              : 'parsed';
+        const base =
+          currentInput && typeof currentInput === 'object' && !Array.isArray(currentInput)
+            ? { ...(currentInput as Record<string, unknown>) }
+            : {};
+        base[outKey] = parsed;
+        output = base;
+      } else {
+        output = parsed;
+      }
     } else if (nodeType === 'merge') {
       output = { merged: parentOutputs };
     } else {
@@ -468,7 +568,9 @@ function executeDagGraph(
     for (const edge of outgoing.get(nodeId) || []) {
       const handle = edge.sourceHandle ? String(edge.sourceHandle).toLowerCase() : '';
       let shouldActivate = true;
-      if (routeBranch === 'true') {
+      if (routeHandles !== null) {
+        shouldActivate = handle.length > 0 && routeHandles.has(handle);
+      } else if (routeBranch === 'true') {
         shouldActivate = !handle || handle === 'output_0' || handle === 'true';
       } else if (routeBranch === 'false') {
         shouldActivate = handle === 'output_1' || handle === 'false';
@@ -507,6 +609,7 @@ const BACKEND_TOOLS_MANIFEST = {
     execute_saved_workflow: { method: 'POST', path: '/api/workflows/:id/execute', requiresAuth: true },
     get_workflow_runs: { method: 'GET', path: '/api/workflows/:id/runs', requiresAuth: true },
     get_workflow_run: { method: 'GET', path: '/api/workflows/:id/runs/:runId', requiresAuth: true },
+    restore_workflow_version: { method: 'POST', path: '/api/workflows/:id/versions/:versionId/restore', requiresAuth: true },
     trigger_webhook: { method: 'POST', path: '/webhook/:id', requiresAuth: false },
   },
   tools: [
@@ -602,6 +705,21 @@ const BACKEND_TOOLS_MANIFEST = {
             runId: { type: 'string' },
           },
           required: ['workflowId', 'runId'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'restore_workflow_version',
+        description: 'Restore a saved workflow to a prior snapshot from workflow_versions and record a new audit version.',
+        parameters: {
+          type: 'object',
+          properties: {
+            workflowId: { type: 'string' },
+            versionId: { type: 'string' },
+          },
+          required: ['workflowId', 'versionId'],
         },
       },
     },
@@ -2204,10 +2322,87 @@ export default {
       );
     }
 
-    // POST /api/workflows/:id/execute - Execute saved D1 workflow and persist run trace
+    // POST /api/workflows/:id/versions/:versionId/restore & POST /api/workflows/:id/execute
     if (url.pathname.startsWith('/api/workflows/') && request.method === 'POST') {
       const parts = url.pathname.split('/');
-      if (parts.length !== 5 || !parts[3] || parts[4] !== 'execute') {
+
+      if (parts.length === 7 && parts[3].trim() && parts[4] === 'versions' && parts[5].trim() && parts[6] === 'restore') {
+        const user = await getAuthUser(request, env);
+        if (!user) {
+          return jsonResponse({ error: 'Unauthorized' }, 401, request);
+        }
+
+        const workflowId = parts[3].trim();
+        const versionId = parts[5].trim();
+        const wf = (await env.DB.prepare(
+          'SELECT id, user_id, name, description, is_active FROM workflows WHERE id = ? AND user_id = ?'
+        )
+          .bind(workflowId, user.id)
+          .first()) as Record<string, unknown> | null;
+
+        if (!wf) {
+          return jsonResponse({ error: 'Workflow not found' }, 404, request);
+        }
+
+        const targetVer = (await env.DB.prepare(
+          'SELECT id, workflow_id, version, nodes, edges, settings FROM workflow_versions WHERE id = ? AND workflow_id = ?'
+        )
+          .bind(versionId, workflowId)
+          .first()) as Record<string, unknown> | null;
+
+        if (!targetVer) {
+          return jsonResponse({ error: 'Version not found' }, 404, request);
+        }
+
+        const lastVer = (await env.DB.prepare('SELECT MAX(version) as max_v FROM workflow_versions WHERE workflow_id = ?')
+          .bind(workflowId)
+          .first()) as { max_v: number } | null;
+        const nextVer = (lastVer?.max_v || 0) + 1;
+        const newVersionId = randomId('ver');
+        const now = new Date().toISOString();
+        const nodesStr = typeof targetVer.nodes === 'string' ? targetVer.nodes : JSON.stringify(targetVer.nodes || []);
+        const edgesStr = typeof targetVer.edges === 'string' ? targetVer.edges : JSON.stringify(targetVer.edges || []);
+        const settingsStr =
+          typeof targetVer.settings === 'string' ? targetVer.settings : JSON.stringify(targetVer.settings || {});
+        const restoredFromVersion = Number(targetVer.version);
+
+        await env.DB.batch([
+          env.DB.prepare('UPDATE workflows SET nodes = ?, edges = ?, settings = ?, updated_at = ? WHERE id = ?').bind(
+            nodesStr,
+            edgesStr,
+            settingsStr,
+            now,
+            workflowId
+          ),
+          env.DB.prepare(
+            'INSERT INTO workflow_versions (id, workflow_id, version, nodes, edges, settings, created_by, change_summary, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+          ).bind(
+            newVersionId,
+            workflowId,
+            nextVer,
+            nodesStr,
+            edgesStr,
+            settingsStr,
+            user.id,
+            `Restored from version ${restoredFromVersion}`,
+            now
+          ),
+        ]);
+
+        return jsonResponse(
+          {
+            success: true,
+            workflowId,
+            restoredFromVersion,
+            newVersion: nextVer,
+            updated_at: now,
+          },
+          200,
+          request
+        );
+      }
+
+      if (parts.length !== 5 || !parts[3].trim() || parts[4] !== 'execute') {
         return jsonResponse({ error: 'API Endpoint Not Found', path: url.pathname }, 404, request);
       }
 
@@ -3506,25 +3701,29 @@ Write the full article now in Markdown.`;
       }
 
       if (request.method === 'POST') {
+        const parsed = await readBoundedJson<{
+          operation?: unknown;
+          input?: unknown;
+          workflowId?: unknown;
+          nodes?: DagNodeInput[];
+          edges?: DagEdgeInput[];
+        }>(request, 256 * 1024, { allowEmpty: true });
+        if (!parsed.ok) {
+          return jsonResponse({ error: parsed.error }, parsed.status, request);
+        }
+        const body = parsed.data;
+        const op =
+          typeof body.operation === 'string' && body.operation.trim()
+            ? body.operation.trim()
+            : url.pathname === '/api/execute'
+              ? 'dag-execution'
+              : 'pass-through';
+        const wfId =
+          typeof body.workflowId === 'string' && body.workflowId.trim()
+            ? body.workflowId.trim()
+            : null;
+
         try {
-          const { text: rawBody, tooLarge } = await readBoundedText(request, 256 * 1024);
-          if (tooLarge) {
-            return jsonResponse({ error: 'Payload Too Large: maximum execution payload is 256KB' }, 413, request);
-          }
-
-          let body: {
-            operation?: string;
-            input?: unknown;
-            workflowId?: string;
-            nodes?: DagNodeInput[];
-            edges?: DagEdgeInput[];
-          };
-          try {
-            body = (rawBody.trim().length > 0 ? JSON.parse(rawBody) : {}) as typeof body;
-          } catch {
-            return jsonResponse({ error: 'Invalid JSON execution payload' }, 400, request);
-          }
-
           if (Array.isArray(body.nodes) && body.nodes.length > 0) {
             const edgesList = Array.isArray(body.edges) ? body.edges : [];
             const dagResult = executeDagGraph(body.nodes, edgesList, body.input ?? {});
@@ -3543,8 +3742,8 @@ Write the full article now in Markdown.`;
             return jsonResponse(
               {
                 success: true,
-                operation: body.operation || (url.pathname === '/api/execute' ? 'dag-execution' : 'pass-through'),
-                workflowId: body.workflowId || null,
+                operation: op,
+                workflowId: wfId,
                 nodesCount: body.nodes.length,
                 edgesCount: edgesList.length,
                 executionOrder: dagResult.executionOrder,
@@ -3562,8 +3761,8 @@ Write the full article now in Markdown.`;
           return jsonResponse(
             {
               success: true,
-              operation: body.operation || (url.pathname === '/api/execute' ? 'dag-execution' : 'pass-through'),
-              workflowId: body.workflowId || null,
+              operation: op,
+              workflowId: wfId,
               nodesCount: 0,
               edgesCount: Array.isArray(body.edges) ? body.edges.length : 0,
               output: body.input ?? { status: 'completed', stepsExecuted: 1 },
@@ -3597,7 +3796,8 @@ Write the full article now in Markdown.`;
         status: 200,
         headers: {
           'Content-Type': 'text/plain; charset=utf-8',
-          'Cache-Control': 'public, max-age=86400'
+          'Cache-Control': 'public, max-age=86400',
+          'Strict-Transport-Security': 'max-age=31536000; includeSubDomains; preload',
         }
       });
     }
@@ -3715,6 +3915,7 @@ Write the full article now in Markdown.`;
     const headers = new Headers(originRes.headers);
     headers.set('X-Content-Type-Options', 'nosniff');
     headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
+    headers.set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains; preload');
     return new Response(originRes.body, {
       status: originRes.status,
       headers,

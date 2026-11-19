@@ -117,10 +117,20 @@ function createMockDb(options?: { failHealthCheck?: boolean }): {
           const wf = workflows.get(wfId);
           return (wf && wf.user_id === userId ? { id: wf.id } : null) as T | null;
         }
-        if (query.startsWith("SELECT id, name, nodes, edges, is_active FROM workflows WHERE id = ? AND user_id = ?")) {
+        if (
+          query.startsWith("SELECT id, name, nodes, edges, is_active FROM workflows WHERE id = ? AND user_id = ?") ||
+          query.startsWith("SELECT id, user_id, name, description, is_active FROM workflows WHERE id = ? AND user_id = ?")
+        ) {
           const [wfId, userId] = args as string[];
           const wf = workflows.get(wfId);
           return (wf && wf.user_id === userId ? wf : null) as T | null;
+        }
+        if (
+          query.startsWith("SELECT id, workflow_id, version, nodes, edges, settings FROM workflow_versions WHERE id = ? AND workflow_id = ?")
+        ) {
+          const [verId, wfId] = args as string[];
+          const found = workflowVersions.find((v) => v.id === verId && v.workflow_id === wfId);
+          return (found ?? null) as T | null;
         }
         if (
           query.startsWith("SELECT id, user_id, name, description, nodes, edges, settings, is_active FROM workflows WHERE id = ?") ||
@@ -189,6 +199,12 @@ function createMockDb(options?: { failHealthCheck?: boolean }): {
             created_at,
             updated_at,
           });
+        } else if (query.startsWith("UPDATE workflows SET nodes =")) {
+          const [nodes, edges, settings, updated_at, id] = args as [string, string, string, string, string];
+          const existing = workflows.get(id);
+          if (existing) {
+            workflows.set(id, { ...existing, nodes, edges, settings, updated_at });
+          }
         } else if (query.startsWith("UPDATE workflows SET")) {
           const [name, description, nodes, edges, settings, is_active, updated_at, id] = args as [
             string,
@@ -1556,5 +1572,296 @@ describe("Worker Backend Security & Contract Suite", () => {
       env
     );
     expect(emptySubject.status).toBe(400);
+  });
+
+  it("blocks prototype-chain dot paths and unsafe keys in DAG transform mapping", async () => {
+    const mock = createMockDb();
+    const rawBody = JSON.stringify({
+      nodes: [
+        {
+          id: "tr",
+          type: "transform",
+          config: {
+            fields: {
+              protoLeak: "{{__proto__.toString}}",
+              ctorLeak: "{{constructor.name}}",
+              ownName: "{{user.name}}",
+            },
+          },
+        },
+      ],
+      edges: [],
+      input: { user: { name: "Ada" } },
+    }).replace(
+      '"ownName"',
+      '"__proto__":{"polluted":"yes"},"constructor":"bad","ownName"'
+    );
+
+    const res = await worker.fetch(
+      new Request("https://shadowflow.work/api/execute", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: rawBody,
+      }),
+      createEnv(mock.db)
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      output: Record<string, unknown>;
+    };
+    expect(body.output.protoLeak).toBe("");
+    expect(body.output.ctorLeak).toBe("");
+    expect(body.output.ownName).toBe("Ada");
+    expect(Object.prototype.hasOwnProperty.call(body.output, "constructor")).toBe(false);
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+  });
+
+  it("evaluates extended condition operators and switch/router multi-branch DAG edges", async () => {
+    const mock = createMockDb();
+    const env = createEnv(mock.db);
+
+    const makeSwitchPayload = (tier: string, email: string) => ({
+      nodes: [
+        { id: "in", type: "webhook" },
+        {
+          id: "chk",
+          type: "condition",
+          config: { field: "email", operator: "ends_with", value: "@enterprise.io" },
+        },
+        {
+          id: "sw",
+          type: "switch",
+          config: {
+            field: "data.tier",
+            cases: [
+              { value: "vip,platinum", operator: "in", handle: "vip_route" },
+              { value: "pro", operator: "eq" },
+            ],
+          },
+        },
+        { id: "vip", type: "transform", config: { fields: { routed: "vip" } } },
+        { id: "pro", type: "transform", config: { fields: { routed: "pro" } } },
+        { id: "def", type: "transform", config: { fields: { routed: "default" } } },
+      ],
+      edges: [
+        { source: "in", target: "chk" },
+        { source: "chk", target: "sw", sourceHandle: "true" },
+        { source: "sw", target: "vip", sourceHandle: "vip_route" },
+        { source: "sw", target: "pro", sourceHandle: "case_1" },
+        { source: "sw", target: "def", sourceHandle: "default" },
+      ],
+      input: { tier, email },
+    });
+
+    const vipRes = await worker.fetch(
+      new Request("https://shadowflow.work/api/execute", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(makeSwitchPayload("platinum", "alice@enterprise.io")),
+      }),
+      env
+    );
+    expect(vipRes.status).toBe(200);
+    const vipBody = (await vipRes.json()) as {
+      stepTraces: Array<{ nodeId: string; status: string }>;
+      output: { routed: string };
+    };
+    expect(vipBody.output.routed).toBe("vip");
+    expect(vipBody.stepTraces.find((s) => s.nodeId === "pro")?.status).toBe("skipped");
+    expect(vipBody.stepTraces.find((s) => s.nodeId === "def")?.status).toBe("skipped");
+
+    const defRes = await worker.fetch(
+      new Request("https://shadowflow.work/api/execute", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(makeSwitchPayload("free", "bob@enterprise.io")),
+      }),
+      env
+    );
+    expect(defRes.status).toBe(200);
+    const defBody = (await defRes.json()) as {
+      stepTraces: Array<{ nodeId: string; status: string }>;
+      output: { routed: string };
+    };
+    expect(defBody.output.routed).toBe("default");
+    expect(defBody.stepTraces.find((s) => s.nodeId === "vip")?.status).toBe("skipped");
+
+    const opsRes = await worker.fetch(
+      new Request("https://shadowflow.work/api/execute", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          nodes: [
+            { id: "c1", type: "condition", config: { field: "email", operator: "starts_with", value: "vip_" } },
+            { id: "c2", type: "condition", config: { field: "notes", operator: "not_contains", value: "spam" } },
+            { id: "c3", type: "condition", config: { field: "deletedAt", operator: "not_exists" } },
+          ],
+          edges: [],
+          input: { email: "vip_lead@acme.io", notes: "verified", deletedAt: null },
+        }),
+      }),
+      env
+    );
+    expect(opsRes.status).toBe(200);
+    const opsBody = (await opsRes.json()) as { stepTraces: Array<{ nodeId: string; output: { matched: boolean } }> };
+    expect(opsBody.stepTraces.map((s) => s.output.matched)).toEqual([true, true, true]);
+  });
+
+  it("supports json-parse and pick DAG nodes and rejects non-object JSON on POST /api/execute", async () => {
+    const mock = createMockDb();
+    const env = createEnv(mock.db);
+
+    const nullRes = await worker.fetch(
+      new Request("https://shadowflow.work/api/execute", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "null",
+      }),
+      env
+    );
+    expect(nullRes.status).toBe(400);
+
+    const arrRes = await worker.fetch(
+      new Request("https://shadowflow.work/api/execute", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "[]",
+      }),
+      env
+    );
+    expect(arrRes.status).toBe(400);
+
+    const dagRes = await worker.fetch(
+      new Request("https://shadowflow.work/api/execute", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          nodes: [
+            { id: "parse", type: "json-parse", config: { field: "raw", outputField: "meta" } },
+            { id: "pick", type: "pick", config: { keys: ["id", "meta.plan", "secret"] } },
+          ],
+          edges: [{ source: "parse", target: "pick" }],
+          input: { id: "u_7", raw: '{"plan":"scale","region":"eu"}', ignored: "drop" },
+        }),
+      }),
+      env
+    );
+    expect(dagRes.status).toBe(200);
+    const dagBody = (await dagRes.json()) as { output: Record<string, unknown> };
+    expect(dagBody.output).toEqual({ id: "u_7", plan: "scale" });
+  });
+
+  it("restores saved workflow snapshots via POST /api/workflows/:id/versions/:versionId/restore", async () => {
+    const mock = createMockDb();
+    const env = createEnv(mock.db);
+
+    const ownerSignup = await worker.fetch(
+      new Request("https://shadowflow.work/api/auth/signup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: "restore-owner@example.com", password: "strong-password-123" }),
+      }),
+      env
+    );
+    const owner = (await ownerSignup.json()) as { token: string };
+
+    const otherSignup = await worker.fetch(
+      new Request("https://shadowflow.work/api/auth/signup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: "restore-other@example.com", password: "strong-password-123" }),
+      }),
+      env
+    );
+    const other = (await otherSignup.json()) as { token: string };
+
+    const createRes = await worker.fetch(
+      new Request("https://shadowflow.work/api/workflows", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${owner.token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: "Versioned Flow",
+          nodes: [{ id: "v1_node", type: "webhook" }],
+          edges: [],
+          settings: { env: "v1" },
+        }),
+      }),
+      env
+    );
+    const created = (await createRes.json()) as { workflow: { id: string } };
+    const wfId = created.workflow.id;
+    const v1Id = mock.workflowVersions.find((v) => v.workflow_id === wfId && v.version === 1)!.id;
+
+    await worker.fetch(
+      new Request(`https://shadowflow.work/api/workflows/${wfId}`, {
+        method: "PUT",
+        headers: { Authorization: `Bearer ${owner.token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ nodes: [{ id: "v2_node", type: "transform" }], settings: { env: "v2" } }),
+      }),
+      env
+    );
+
+    const unauthRestore = await worker.fetch(
+      new Request(`https://shadowflow.work/api/workflows/${wfId}/versions/${v1Id}/restore`, { method: "POST" }),
+      env
+    );
+    expect(unauthRestore.status).toBe(401);
+
+    const otherRestore = await worker.fetch(
+      new Request(`https://shadowflow.work/api/workflows/${wfId}/versions/${v1Id}/restore`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${other.token}` },
+      }),
+      env
+    );
+    expect(otherRestore.status).toBe(404);
+
+    const batchesBefore = mock.batchCallCount();
+    const okRestore = await worker.fetch(
+      new Request(`https://shadowflow.work/api/workflows/${wfId}/versions/${v1Id}/restore`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${owner.token}` },
+      }),
+      env
+    );
+    expect(okRestore.status).toBe(200);
+    const restoreBody = (await okRestore.json()) as {
+      success: boolean;
+      restoredFromVersion: number;
+      newVersion: number;
+    };
+    expect(restoreBody.restoredFromVersion).toBe(1);
+    expect(restoreBody.newVersion).toBe(3);
+    expect(mock.batchCallCount() - batchesBefore).toBe(1);
+    expect(JSON.parse(mock.workflows.get(wfId)!.nodes)).toEqual([{ id: "v1_node", type: "webhook" }]);
+    expect(JSON.parse(mock.workflows.get(wfId)!.settings)).toEqual({ env: "v1" });
+
+    const manifestRes = await worker.fetch(new Request("https://shadowflow.work/api/backend/tools"), env);
+    const manifest = (await manifestRes.json()) as { tools: Array<{ function: { name: string } }> };
+    expect(manifest.tools.map((t) => t.function.name)).toContain("restore_workflow_version");
+  });
+
+  it("allows webhook HMAC headers in CORS preflight and sets HSTS on IndexNow key route", async () => {
+    const mock = createMockDb();
+    const env = createEnv(mock.db);
+
+    const preflightRes = await worker.fetch(
+      new Request("https://shadowflow.work/webhook/wf_1", {
+        method: "OPTIONS",
+        headers: { Origin: "https://shadowflow.work" },
+      }),
+      env
+    );
+    expect(preflightRes.status).toBe(204);
+    const allowHeaders = preflightRes.headers.get("Access-Control-Allow-Headers") || "";
+    expect(allowHeaders).toContain("X-ShadowFlow-Signature");
+    expect(allowHeaders).toContain("X-ShadowFlow-Timestamp");
+
+    const keyRes = await worker.fetch(
+      new Request("https://shadowflow.work/c2188ff6e637482ea4bc837699131a98.txt"),
+      env
+    );
+    expect(keyRes.status).toBe(200);
+    expect(keyRes.headers.get("Strict-Transport-Security")).toBe("max-age=31536000; includeSubDomains; preload");
   });
 });
