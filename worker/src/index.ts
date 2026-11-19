@@ -85,6 +85,8 @@ function jsonResponse(
     status,
     headers: {
       'Content-Type': 'application/json',
+      'Strict-Transport-Security': 'max-age=31536000; includeSubDomains; preload',
+      'Content-Security-Policy': "default-src 'none'; frame-ancestors 'none'",
       'X-Content-Type-Options': 'nosniff',
       'X-Frame-Options': 'DENY',
       'X-Robots-Tag': 'noindex, nofollow',
@@ -141,6 +143,58 @@ async function readBoundedText(request: Request, maxBytes: number): Promise<{ te
     offset += chunk.byteLength;
   }
   return { text: new TextDecoder().decode(combined), tooLarge: false };
+}
+
+async function readBoundedJson<T = Record<string, unknown>>(
+  request: Request,
+  maxBytes: number,
+  options: { allowEmpty?: boolean; requireObject?: boolean } = {}
+): Promise<{ ok: true; data: T } | { ok: false; status: 400 | 413; error: string }> {
+  const { text, tooLarge } = await readBoundedText(request, maxBytes);
+  if (tooLarge) {
+    return { ok: false, status: 413, error: `Payload Too Large: maximum body size is ${Math.round(maxBytes / 1024)}KB` };
+  }
+  if (text.trim().length === 0) {
+    if (options.allowEmpty) {
+      return { ok: true, data: {} as T };
+    }
+    return { ok: false, status: 400, error: 'Request body must be valid JSON' };
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return { ok: false, status: 400, error: 'Invalid JSON request body' };
+  }
+  if (options.requireObject !== false && (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed))) {
+    return { ok: false, status: 400, error: 'Request body must be a JSON object' };
+  }
+  return { ok: true, data: parsed as T };
+}
+
+function validateWorkflowPayload(
+  body: Record<string, unknown>,
+  allowChangeSummary = false
+): string | null {
+  if (body.name !== undefined && typeof body.name !== 'string') {
+    return 'name must be a string';
+  }
+  if (body.description !== undefined && typeof body.description !== 'string') {
+    return 'description must be a string';
+  }
+  if (body.nodes !== undefined && !Array.isArray(body.nodes)) {
+    return 'nodes must be an array';
+  }
+  if (body.edges !== undefined && !Array.isArray(body.edges)) {
+    return 'edges must be an array';
+  }
+  if (body.settings !== undefined && (typeof body.settings !== 'object' || body.settings === null || Array.isArray(body.settings))) {
+    return 'settings must be a JSON object';
+  }
+  if (allowChangeSummary && body.change_summary !== undefined && typeof body.change_summary !== 'string') {
+    return 'change_summary must be a string';
+  }
+  return null;
 }
 
 interface DagNodeInput {
@@ -436,8 +490,11 @@ const BACKEND_TOOLS_MANIFEST = {
     execute_dag: { method: 'POST', path: '/api/execute', requiresAuth: false },
     list_workflows: { method: 'GET', path: '/api/workflows', requiresAuth: true },
     create_workflow: { method: 'POST', path: '/api/workflows', requiresAuth: true },
+    update_workflow: { method: 'PUT', path: '/api/workflows/:id', requiresAuth: true },
+    delete_workflow: { method: 'DELETE', path: '/api/workflows/:id', requiresAuth: true },
     execute_saved_workflow: { method: 'POST', path: '/api/workflows/:id/execute', requiresAuth: true },
     get_workflow_runs: { method: 'GET', path: '/api/workflows/:id/runs', requiresAuth: true },
+    trigger_webhook: { method: 'POST', path: '/webhook/:id', requiresAuth: false },
   },
   tools: [
     {
@@ -520,6 +577,56 @@ const BACKEND_TOOLS_MANIFEST = {
         },
       },
     },
+    {
+      type: 'function',
+      function: {
+        name: 'update_workflow',
+        description: 'Update an existing saved workflow definition or active state in D1 (supports partial updates).',
+        parameters: {
+          type: 'object',
+          properties: {
+            workflowId: { type: 'string' },
+            name: { type: 'string' },
+            description: { type: 'string' },
+            nodes: { type: 'array' },
+            edges: { type: 'array' },
+            settings: { type: 'object' },
+            is_active: { type: 'boolean' },
+            change_summary: { type: 'string' },
+          },
+          required: ['workflowId'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'delete_workflow',
+        description: 'Delete a saved workflow and its version/run history from D1.',
+        parameters: {
+          type: 'object',
+          properties: {
+            workflowId: { type: 'string' },
+          },
+          required: ['workflowId'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'trigger_webhook',
+        description: 'Trigger an active workflow via its webhook endpoint, verifying optional HMAC-SHA256 signature headers when configured.',
+        parameters: {
+          type: 'object',
+          properties: {
+            workflowId: { type: 'string' },
+            payload: { type: 'object' },
+          },
+          required: ['workflowId'],
+        },
+      },
+    },
   ],
 };
 
@@ -551,6 +658,19 @@ function timingSafeEqual(a: string, b: string): boolean {
     diff |= (aBytes[i] ?? 0) ^ (bBytes[i] ?? 0);
   }
   return diff === 0;
+}
+
+async function computeHmacSha256Hex(secret: string, payload: string): Promise<string> {
+  const enc = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    'raw',
+    enc.encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign']
+  );
+  const sig = await crypto.subtle.sign('HMAC', key, enc.encode(payload));
+  return bytesToHex(new Uint8Array(sig));
 }
 
 function randomId(prefix: string): string {
@@ -1864,22 +1984,33 @@ export default {
         return jsonResponse({ error: 'Unauthorized' }, 401, request);
       }
 
-      try {
-        const body = (await request.json()) as {
-          name?: string;
-          description?: string;
-          nodes?: unknown;
-          edges?: unknown;
-          settings?: unknown;
-          is_active?: boolean;
-        };
+      const parsed = await readBoundedJson<{
+        name?: unknown;
+        description?: unknown;
+        nodes?: unknown;
+        edges?: unknown;
+        settings?: unknown;
+        is_active?: unknown;
+      }>(request, 512 * 1024);
+      if (!parsed.ok) {
+        return jsonResponse({ error: parsed.error }, parsed.status, request);
+      }
+      const body = parsed.data;
+      const validationErr = validateWorkflowPayload(body);
+      if (validationErr) {
+        return jsonResponse({ error: validationErr }, 400, request);
+      }
 
+      try {
         const id = randomId('wf');
-        const name = body.name?.trim() || 'Untitled Workflow';
-        const description = body.description?.trim() || '';
-        const nodesStr = JSON.stringify(body.nodes || []);
-        const edgesStr = JSON.stringify(body.edges || []);
-        const settingsStr = JSON.stringify(body.settings || {});
+        const name = (typeof body.name === 'string' ? body.name.trim() : '') || 'Untitled Workflow';
+        const description = typeof body.description === 'string' ? body.description.trim() : '';
+        const nodesVal = body.nodes || [];
+        const edgesVal = body.edges || [];
+        const settingsVal = body.settings || {};
+        const nodesStr = JSON.stringify(nodesVal);
+        const edgesStr = JSON.stringify(edgesVal);
+        const settingsStr = JSON.stringify(settingsVal);
         const isActive = body.is_active !== false ? 1 : 0;
         const now = new Date().toISOString();
 
@@ -1905,9 +2036,9 @@ export default {
               user_id: user.id,
               name,
               description,
-              nodes: body.nodes || [],
-              edges: body.edges || [],
-              settings: body.settings || {},
+              nodes: nodesVal,
+              edges: edgesVal,
+              settings: settingsVal,
               is_active: Boolean(isActive),
               created_at: now,
               updated_at: now,
@@ -2104,27 +2235,41 @@ export default {
 
     // PUT /api/workflows/:id
     if (url.pathname.startsWith('/api/workflows/') && request.method === 'PUT') {
+      const parts = url.pathname.split('/');
+      if (parts.length !== 4 || !parts[3].trim()) {
+        return jsonResponse({ error: 'API Endpoint Not Found', path: url.pathname }, 404, request);
+      }
+      const workflowId = parts[3].trim();
+
       const user = await getAuthUser(request, env);
       if (!user) {
         return jsonResponse({ error: 'Unauthorized' }, 401, request);
       }
 
-      const workflowId = url.pathname.replace('/api/workflows/', '').trim();
-      try {
-        const body = (await request.json()) as {
-          name?: string;
-          description?: string;
-          nodes?: unknown;
-          edges?: unknown;
-          settings?: unknown;
-          is_active?: boolean;
-          change_summary?: string;
-        };
+      const parsed = await readBoundedJson<{
+        name?: unknown;
+        description?: unknown;
+        nodes?: unknown;
+        edges?: unknown;
+        settings?: unknown;
+        is_active?: unknown;
+        change_summary?: unknown;
+      }>(request, 512 * 1024);
+      if (!parsed.ok) {
+        return jsonResponse({ error: parsed.error }, parsed.status, request);
+      }
+      const body = parsed.data;
+      const validationErr = validateWorkflowPayload(body, true);
+      if (validationErr) {
+        return jsonResponse({ error: validationErr }, 400, request);
+      }
 
-        const existing = (await env.DB.prepare('SELECT id, user_id FROM workflows WHERE id = ?').bind(workflowId).first()) as {
-          id: string;
-          user_id: string;
-        } | null;
+      try {
+        const existing = (await env.DB.prepare(
+          'SELECT id, user_id, name, description, nodes, edges, settings, is_active FROM workflows WHERE id = ?'
+        )
+          .bind(workflowId)
+          .first()) as Record<string, unknown> | null;
 
         if (!existing) {
           return jsonResponse({ error: 'Workflow not found' }, 404, request);
@@ -2134,15 +2279,40 @@ export default {
         }
 
         const now = new Date().toISOString();
-        const nodesStr = JSON.stringify(body.nodes || []);
-        const edgesStr = JSON.stringify(body.edges || []);
-        const settingsStr = JSON.stringify(body.settings || {});
-        const isActive = body.is_active !== undefined ? (body.is_active ? 1 : 0) : 1;
+        const nextName =
+          body.name !== undefined
+            ? String(body.name).trim() || 'Untitled Workflow'
+            : String(existing.name || 'Untitled Workflow');
+        const nextDescription =
+          body.description !== undefined ? String(body.description).trim() : String(existing.description || '');
+        const nodesStr =
+          body.nodes !== undefined
+            ? JSON.stringify(body.nodes)
+            : typeof existing.nodes === 'string'
+              ? existing.nodes
+              : JSON.stringify(existing.nodes || []);
+        const edgesStr =
+          body.edges !== undefined
+            ? JSON.stringify(body.edges)
+            : typeof existing.edges === 'string'
+              ? existing.edges
+              : JSON.stringify(existing.edges || []);
+        const settingsStr =
+          body.settings !== undefined
+            ? JSON.stringify(body.settings)
+            : typeof existing.settings === 'string'
+              ? existing.settings
+              : JSON.stringify(existing.settings || {});
+        const isActive = body.is_active !== undefined ? (body.is_active ? 1 : 0) : Number(existing.is_active ?? 1);
+        const changeSummary =
+          typeof body.change_summary === 'string' && body.change_summary.trim()
+            ? body.change_summary.trim()
+            : `Updated at ${now}`;
 
         await env.DB.prepare(
           'UPDATE workflows SET name = ?, description = ?, nodes = ?, edges = ?, settings = ?, is_active = ?, updated_at = ? WHERE id = ?'
         )
-          .bind(body.name || 'Untitled Workflow', body.description || '', nodesStr, edgesStr, settingsStr, isActive, now, workflowId)
+          .bind(nextName, nextDescription, nodesStr, edgesStr, settingsStr, isActive, now, workflowId)
           .run();
 
         // Save a version
@@ -2155,10 +2325,10 @@ export default {
         await env.DB.prepare(
           'INSERT INTO workflow_versions (id, workflow_id, version, nodes, edges, settings, created_by, change_summary, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
         )
-          .bind(versionId, workflowId, nextVer, nodesStr, edgesStr, settingsStr, user.id, body.change_summary || `Updated at ${now}`, now)
+          .bind(versionId, workflowId, nextVer, nodesStr, edgesStr, settingsStr, user.id, changeSummary, now)
           .run();
 
-        return jsonResponse({ success: true, updated_at: now }, 200, request);
+        return jsonResponse({ success: true, version: nextVer, updated_at: now }, 200, request);
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);
         return jsonResponse({ error: 'Update failed', details: message }, 500, request);
@@ -2167,12 +2337,17 @@ export default {
 
     // DELETE /api/workflows/:id
     if (url.pathname.startsWith('/api/workflows/') && request.method === 'DELETE') {
+      const parts = url.pathname.split('/');
+      if (parts.length !== 4 || !parts[3].trim()) {
+        return jsonResponse({ error: 'API Endpoint Not Found', path: url.pathname }, 404, request);
+      }
+      const workflowId = parts[3].trim();
+
       const user = await getAuthUser(request, env);
       if (!user) {
         return jsonResponse({ error: 'Unauthorized' }, 401, request);
       }
 
-      const workflowId = url.pathname.replace('/api/workflows/', '').trim();
       const existing = (await env.DB.prepare('SELECT id, user_id FROM workflows WHERE id = ?').bind(workflowId).first()) as {
         id: string;
         user_id: string;
@@ -2185,7 +2360,11 @@ export default {
         return jsonResponse({ error: 'Forbidden' }, 403, request);
       }
 
-      await env.DB.prepare('DELETE FROM workflows WHERE id = ?').bind(workflowId).run();
+      await env.DB.batch([
+        env.DB.prepare('DELETE FROM workflow_versions WHERE workflow_id = ?').bind(workflowId),
+        env.DB.prepare('DELETE FROM workflow_runs WHERE workflow_id = ?').bind(workflowId),
+        env.DB.prepare('DELETE FROM workflows WHERE id = ?').bind(workflowId),
+      ]);
       return jsonResponse({ success: true, message: 'Workflow deleted' }, 200, request);
     }
 
@@ -2222,15 +2401,32 @@ export default {
       if (gate.response) return gate.response;
       const user = gate.user;
 
+      const parsed = await readBoundedJson<{ provider?: unknown; name?: unknown; data?: unknown }>(request, 64 * 1024);
+      if (!parsed.ok) {
+        return jsonResponse({ error: parsed.error }, parsed.status, request);
+      }
+      const body = parsed.data;
+      if (body.provider !== undefined && typeof body.provider !== 'string') {
+        return jsonResponse({ error: 'provider must be a string' }, 400, request);
+      }
+      if (body.name !== undefined && typeof body.name !== 'string') {
+        return jsonResponse({ error: 'name must be a string' }, 400, request);
+      }
+      if (body.data !== undefined && (typeof body.data !== 'object' || body.data === null || Array.isArray(body.data))) {
+        return jsonResponse({ error: 'data must be a JSON object' }, 400, request);
+      }
+
       try {
-        const body = (await request.json()) as { provider?: string; name?: string; data?: unknown };
         const id = randomId('crd');
         const now = new Date().toISOString();
+        const provider = (typeof body.provider === 'string' ? body.provider.trim() : '') || 'generic';
+        const name = (typeof body.name === 'string' ? body.name.trim() : '') || 'API Key';
+        const dataObj = body.data || {};
 
         await env.DB.prepare(
           'INSERT INTO user_credentials (id, user_id, provider, name, data, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
         )
-          .bind(id, user.id, body.provider || 'generic', body.name || 'API Key', JSON.stringify(body.data || {}), now, now)
+          .bind(id, user.id, provider, name, JSON.stringify(dataObj), now, now)
           .run();
 
         return jsonResponse({ success: true, id }, 201, request);
@@ -2242,12 +2438,17 @@ export default {
 
     // DELETE /api/credentials/:id
     if (url.pathname.startsWith('/api/credentials/') && request.method === 'DELETE') {
+      const parts = url.pathname.split('/');
+      if (parts.length !== 4 || !parts[3].trim()) {
+        return jsonResponse({ error: 'API Endpoint Not Found', path: url.pathname }, 404, request);
+      }
+      const credId = parts[3].trim();
+
       const user = await getAuthUser(request, env);
       if (!user) {
         return jsonResponse({ error: 'Unauthorized' }, 401, request);
       }
 
-      const credId = url.pathname.replace('/api/credentials/', '').trim();
       await env.DB.prepare('DELETE FROM user_credentials WHERE id = ? AND user_id = ?').bind(credId, user.id).run();
       return jsonResponse({ success: true, message: 'Credential deleted' }, 200, request);
     }
@@ -2258,7 +2459,14 @@ export default {
 
     // Webhook receiver endpoint
     if (url.pathname.startsWith('/webhook/')) {
-      const workflowId = url.pathname.slice('/webhook/'.length).replace(/\/+$/, '').trim();
+      const rawPathSuffix = url.pathname.slice('/webhook/'.length).replace(/\/+$/, '');
+      if (!rawPathSuffix) {
+        return jsonResponse({ error: 'Missing workflow ID in webhook path' }, 400, request);
+      }
+      if (rawPathSuffix.includes('/')) {
+        return jsonResponse({ error: 'Invalid webhook path', path: url.pathname }, 404, request);
+      }
+      const workflowId = rawPathSuffix.trim();
       if (!workflowId) {
         return jsonResponse({ error: 'Missing workflow ID in webhook path' }, 400, request);
       }
@@ -2283,6 +2491,121 @@ export default {
         payload = rawBody;
       }
 
+      let wf: Record<string, unknown> | null = null;
+      try {
+        wf = (await env.DB.prepare(
+          'SELECT id, name, nodes, edges, settings, is_active FROM workflows WHERE id = ?'
+        )
+          .bind(workflowId)
+          .first()) as Record<string, unknown> | null;
+      } catch {
+        wf = null;
+      }
+
+      if (wf) {
+        if (Number(wf.is_active) === 0) {
+          return jsonResponse({ error: 'Workflow is inactive', workflowId, isActive: false }, 409, request);
+        }
+
+        const settings = safeJsonParse<Record<string, unknown>>(wf.settings, {});
+        if (typeof settings.webhookSecret === 'string' && settings.webhookSecret.trim().length > 0) {
+          const sigHeader = request.headers.get('X-ShadowFlow-Signature');
+          if (!sigHeader) {
+            return jsonResponse({ error: 'Missing X-ShadowFlow-Signature header' }, 401, request);
+          }
+          const normalizedSig = sigHeader.trim().replace(/^sha256=/i, '').toLowerCase();
+          const rawTs = (request.headers.get('X-ShadowFlow-Timestamp') || '').trim();
+          if (settings.requireTimestamp === true && !rawTs) {
+            return jsonResponse({ error: 'Missing X-ShadowFlow-Timestamp header' }, 401, request);
+          }
+
+          let signedPayload = rawBody;
+          if (rawTs) {
+            const maxSkewCfg =
+              typeof settings.maxSkewSeconds === 'number' && Number.isFinite(settings.maxSkewSeconds)
+                ? settings.maxSkewSeconds
+                : 300;
+            const maxSkewSec = Math.min(Math.max(Math.floor(maxSkewCfg), 1), 3600);
+            if (!/^\d+$/.test(rawTs) || Math.abs(Math.floor(Date.now() / 1000) - Number(rawTs)) > maxSkewSec) {
+              return jsonResponse({ error: 'Webhook timestamp expired or outside replay window' }, 401, request);
+            }
+            signedPayload = `${rawTs}.${rawBody}`;
+          }
+
+          const expectedHex = await computeHmacSha256Hex(settings.webhookSecret, signedPayload);
+          if (!timingSafeEqual(normalizedSig, expectedHex)) {
+            return jsonResponse({ error: 'Invalid webhook signature' }, 401, request);
+          }
+        }
+
+        const nodes = safeJsonParse<DagNodeInput[]>(wf.nodes, []);
+        const edges = safeJsonParse<DagEdgeInput[]>(wf.edges, []);
+        if (nodes.length > 0) {
+          const executionId = randomId('exec');
+          const startedAt = new Date().toISOString();
+          const dagResult = executeDagGraph(nodes, edges, payload ?? {});
+          const finishedAt = new Date().toISOString();
+
+          try {
+            await env.DB.prepare(
+              'INSERT INTO workflow_runs (id, workflow_id, status, started_at, finished_at, error_log, logs) VALUES (?, ?, ?, ?, ?, ?, ?)'
+            )
+              .bind(
+                executionId,
+                workflowId,
+                dagResult.ok ? 'success' : 'failed',
+                startedAt,
+                finishedAt,
+                dagResult.ok ? null : dagResult.error,
+                JSON.stringify(
+                  dagResult.ok ? dagResult.stepTraces : [{ error: dagResult.error, cycleNodes: dagResult.cycleNodes }]
+                )
+              )
+              .run();
+          } catch {
+            // Silently continue if run logging fails
+          }
+
+          if (!dagResult.ok) {
+            return jsonResponse(
+              {
+                success: false,
+                executedDag: true,
+                workflowId,
+                workflowName: String(wf.name || ''),
+                executionId,
+                receivedAt: startedAt,
+                error: dagResult.error,
+                cycleNodes: dagResult.cycleNodes,
+                status: 'failed',
+              },
+              dagResult.status,
+              request
+            );
+          }
+
+          return jsonResponse(
+            {
+              success: true,
+              executedDag: true,
+              workflowId,
+              workflowName: String(wf.name || ''),
+              executionId,
+              receivedAt: startedAt,
+              processedAt: finishedAt,
+              executionOrder: dagResult.executionOrder,
+              stepsExecuted: dagResult.stepsExecuted,
+              stepTraces: dagResult.stepTraces,
+              output: dagResult.output,
+              totalDurationMs: dagResult.totalDurationMs,
+              status: 'completed',
+            },
+            202,
+            request
+          );
+        }
+      }
+
       const executionId = randomId('exec');
       const now = new Date().toISOString();
 
@@ -2299,6 +2622,7 @@ export default {
       return jsonResponse(
         {
           success: true,
+          executedDag: false,
           workflowId,
           executionId,
           receivedAt: now,

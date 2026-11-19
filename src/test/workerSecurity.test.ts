@@ -43,18 +43,32 @@ interface StoredWorkflowRun {
   logs: string;
 }
 
+interface StoredWorkflowVersion {
+  id: string;
+  workflow_id: string;
+  version: number;
+  nodes: string;
+  edges: string;
+  settings: string;
+  created_by: string;
+  change_summary: string;
+  created_at: string;
+}
+
 function createMockDb(options?: { failHealthCheck?: boolean }): {
   db: D1Database;
   users: Map<string, StoredUser>;
   tfaByUserId: Map<string, StoredTfa>;
   workflows: Map<string, StoredWorkflow>;
   workflowRuns: StoredWorkflowRun[];
+  workflowVersions: StoredWorkflowVersion[];
   selectOneCount: () => number;
 } {
   const users = new Map<string, StoredUser>();
   const tfaByUserId = new Map<string, StoredTfa>();
   const workflows = new Map<string, StoredWorkflow>();
   const workflowRuns: StoredWorkflowRun[] = [];
+  const workflowVersions: StoredWorkflowVersion[] = [];
   let healthQueries = 0;
 
   const prepare = (query: string): D1PreparedStatement => {
@@ -101,6 +115,21 @@ function createMockDb(options?: { failHealthCheck?: boolean }): {
           const wf = workflows.get(wfId);
           return (wf && wf.user_id === userId ? wf : null) as T | null;
         }
+        if (
+          query.startsWith("SELECT id, user_id, name, description, nodes, edges, settings, is_active FROM workflows WHERE id = ?") ||
+          query.startsWith("SELECT id, user_id FROM workflows WHERE id = ?") ||
+          query.startsWith("SELECT id, name, nodes, edges, settings, is_active FROM workflows WHERE id = ?")
+        ) {
+          const wf = workflows.get(String(args[0]));
+          return (wf ?? null) as T | null;
+        }
+        if (query.startsWith("SELECT MAX(version) as max_v FROM workflow_versions WHERE workflow_id = ?")) {
+          const wfId = String(args[0]);
+          const maxV = workflowVersions
+            .filter((v) => v.workflow_id === wfId)
+            .reduce((acc, v) => Math.max(acc, v.version), 0);
+          return { max_v: maxV } as T;
+        }
         return null;
       },
       run: async () => {
@@ -114,6 +143,94 @@ function createMockDb(options?: { failHealthCheck?: boolean }): {
             display_name,
             email_verified: 0,
           });
+        } else if (query.startsWith("INSERT INTO workflows")) {
+          const [id, user_id, name, description, nodes, edges, settings, is_active, created_at, updated_at] = args as [
+            string,
+            string,
+            string,
+            string,
+            string,
+            string,
+            string,
+            number,
+            string,
+            string,
+          ];
+          workflows.set(id, {
+            id,
+            user_id,
+            name,
+            description,
+            nodes,
+            edges,
+            settings,
+            is_active,
+            created_at,
+            updated_at,
+          });
+        } else if (query.startsWith("UPDATE workflows SET")) {
+          const [name, description, nodes, edges, settings, is_active, updated_at, id] = args as [
+            string,
+            string,
+            string,
+            string,
+            string,
+            number,
+            string,
+            string,
+          ];
+          const existing = workflows.get(id);
+          if (existing) {
+            workflows.set(id, {
+              ...existing,
+              name,
+              description,
+              nodes,
+              edges,
+              settings,
+              is_active,
+              updated_at,
+            });
+          }
+        } else if (query.startsWith("INSERT INTO workflow_versions")) {
+          const [id, workflow_id, version, nodes, edges, settings, created_by, change_summary, created_at] = args as [
+            string,
+            string,
+            number,
+            string,
+            string,
+            string,
+            string,
+            string,
+            string,
+          ];
+          workflowVersions.push({
+            id,
+            workflow_id,
+            version,
+            nodes,
+            edges,
+            settings,
+            created_by,
+            change_summary,
+            created_at,
+          });
+        } else if (query.startsWith("DELETE FROM workflow_versions WHERE workflow_id = ?")) {
+          const wfId = String(args[0]);
+          for (let i = workflowVersions.length - 1; i >= 0; i--) {
+            if (workflowVersions[i].workflow_id === wfId) {
+              workflowVersions.splice(i, 1);
+            }
+          }
+        } else if (query.startsWith("DELETE FROM workflow_runs WHERE workflow_id = ?")) {
+          const wfId = String(args[0]);
+          for (let i = workflowRuns.length - 1; i >= 0; i--) {
+            if (workflowRuns[i].workflow_id === wfId) {
+              workflowRuns.splice(i, 1);
+            }
+          }
+        } else if (query.startsWith("DELETE FROM workflows WHERE id = ?")) {
+          workflows.delete(String(args[0]));
         } else if (query.startsWith("INSERT INTO workflow_runs")) {
           const [id, workflow_id, status, started_at, finished_at, error_log, logs] = args as [
             string,
@@ -167,8 +284,24 @@ function createMockDb(options?: { failHealthCheck?: boolean }): {
     tfaByUserId,
     workflows,
     workflowRuns,
+    workflowVersions,
     selectOneCount: () => healthQueries,
   };
+}
+
+async function signWebhookHmac(secret: string, payload: string): Promise<string> {
+  const enc = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    "raw",
+    enc.encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"]
+  );
+  const sig = await crypto.subtle.sign("HMAC", key, enc.encode(payload));
+  return Array.from(new Uint8Array(sig))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
 }
 
 function createEnv(db: D1Database): Env {
@@ -753,5 +886,305 @@ describe("Worker Backend Security & Contract Suite", () => {
     expect(headRes.status).toBe(200);
     expect(headRes.headers.get("Content-Type")).toContain("application/json");
     expect(await headRes.text()).toBe("");
+    expect(manifest.tools.map((t) => t.function.name)).toEqual(
+      expect.arrayContaining(["update_workflow", "delete_workflow", "trigger_webhook"])
+    );
+  });
+
+  it("emits Strict-Transport-Security and API Content-Security-Policy on JSON responses", async () => {
+    const mock = createMockDb();
+    const res = await worker.fetch(new Request("https://shadowflow.work/api/health"), createEnv(mock.db));
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Strict-Transport-Security")).toBe("max-age=31536000; includeSubDomains; preload");
+    expect(res.headers.get("Content-Security-Policy")).toBe("default-src 'none'; frame-ancestors 'none'");
+  });
+
+  it("rejects malformed, wrong-typed, oversized, and multi-segment requests on workflow CRUD", async () => {
+    const mock = createMockDb();
+    const env = createEnv(mock.db);
+
+    const signupRes = await worker.fetch(
+      new Request("https://shadowflow.work/api/auth/signup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: "crud-hardened@example.com", password: "strong-password-123" }),
+      }),
+      env
+    );
+    const { token } = (await signupRes.json()) as { token: string };
+
+    const badJsonPost = await worker.fetch(
+      new Request("https://shadowflow.work/api/workflows", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: "{bad json",
+      }),
+      env
+    );
+    expect(badJsonPost.status).toBe(400);
+
+    const badNodesPost = await worker.fetch(
+      new Request("https://shadowflow.work/api/workflows", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ name: "Bad Nodes", nodes: "not-an-array" }),
+      }),
+      env
+    );
+    expect(badNodesPost.status).toBe(400);
+
+    const largeBody = JSON.stringify({ name: "Huge", description: "x".repeat(520 * 1024) });
+    const hugePost = await worker.fetch(
+      new Request("https://shadowflow.work/api/workflows", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: largeBody,
+      }),
+      env
+    );
+    expect(hugePost.status).toBe(413);
+
+    const extraSegPut = await worker.fetch(
+      new Request("https://shadowflow.work/api/workflows/wf_1/extra", {
+        method: "PUT",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ name: "No" }),
+      }),
+      env
+    );
+    expect(extraSegPut.status).toBe(404);
+
+    const extraSegDel = await worker.fetch(
+      new Request("https://shadowflow.work/api/workflows/wf_1/extra", {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      }),
+      env
+    );
+    expect(extraSegDel.status).toBe(404);
+
+    const extraCredDel = await worker.fetch(
+      new Request("https://shadowflow.work/api/credentials/crd_1/extra", {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      }),
+      env
+    );
+    expect(extraCredDel.status).toBe(404);
+  });
+
+  it("preserves fields on partial PUT /api/workflows/:id and cascades child rows on DELETE", async () => {
+    const mock = createMockDb();
+    const env = createEnv(mock.db);
+
+    const signupRes = await worker.fetch(
+      new Request("https://shadowflow.work/api/auth/signup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: "crud-owner@example.com", password: "strong-password-123" }),
+      }),
+      env
+    );
+    const { token } = (await signupRes.json()) as { token: string };
+
+    const createRes = await worker.fetch(
+      new Request("https://shadowflow.work/api/workflows", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: "Lead Sync",
+          description: "Initial flow",
+          nodes: [{ id: "n1", type: "webhook", label: "Start" }],
+          edges: [],
+          settings: { webhookSecret: "sec_123" },
+        }),
+      }),
+      env
+    );
+    expect(createRes.status).toBe(201);
+    const created = (await createRes.json()) as { workflow: { id: string } };
+    const wfId = created.workflow.id;
+
+    const putRes = await worker.fetch(
+      new Request(`https://shadowflow.work/api/workflows/${wfId}`, {
+        method: "PUT",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ is_active: false }),
+      }),
+      env
+    );
+    expect(putRes.status).toBe(200);
+    const putBody = (await putRes.json()) as { success: boolean; version: number };
+    expect(putBody.version).toBe(2);
+
+    const stored = mock.workflows.get(wfId)!;
+    expect(stored.name).toBe("Lead Sync");
+    expect(stored.is_active).toBe(0);
+    expect(JSON.parse(stored.nodes)).toHaveLength(1);
+    expect(JSON.parse(stored.settings)).toEqual({ webhookSecret: "sec_123" });
+    expect(mock.workflowVersions.filter((v) => v.workflow_id === wfId)).toHaveLength(2);
+
+    mock.workflowRuns.push({
+      id: "exec_child",
+      workflow_id: wfId,
+      status: "success",
+      started_at: new Date().toISOString(),
+      finished_at: new Date().toISOString(),
+      error_log: null,
+      logs: "[]",
+    });
+
+    const delRes = await worker.fetch(
+      new Request(`https://shadowflow.work/api/workflows/${wfId}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      }),
+      env
+    );
+    expect(delRes.status).toBe(200);
+    expect(mock.workflows.has(wfId)).toBe(false);
+    expect(mock.workflowVersions.filter((v) => v.workflow_id === wfId)).toHaveLength(0);
+    expect(mock.workflowRuns.filter((r) => r.workflow_id === wfId)).toHaveLength(0);
+  });
+
+  it("executes active DAG workflows on POST /webhook/:id and rejects inactive ones with 409", async () => {
+    const mock = createMockDb();
+    const env = createEnv(mock.db);
+
+    mock.workflows.set("wf_hook_dag", {
+      id: "wf_hook_dag",
+      user_id: "u_1",
+      name: "Webhook Transform",
+      description: "",
+      nodes: JSON.stringify([
+        { id: "in", data: { flowType: "webhook", label: "Webhook In" } },
+        { id: "tr", data: { flowType: "transform", label: "Tag", config: { fields: { source: "webhook" } } } },
+      ]),
+      edges: JSON.stringify([{ source: "in", target: "tr" }]),
+      settings: "{}",
+      is_active: 1,
+      created_at: "2026-11-19T00:00:00.000Z",
+      updated_at: "2026-11-19T00:00:00.000Z",
+    });
+
+    const activeRes = await worker.fetch(
+      new Request("https://shadowflow.work/webhook/wf_hook_dag", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ event: "signup" }),
+      }),
+      env
+    );
+    expect(activeRes.status).toBe(202);
+    const activeBody = (await activeRes.json()) as {
+      executedDag: boolean;
+      stepsExecuted: number;
+      output: { event: string; source: string };
+    };
+    expect(activeBody.executedDag).toBe(true);
+    expect(activeBody.stepsExecuted).toBe(2);
+    expect(activeBody.output).toEqual({ event: "signup", source: "webhook" });
+    expect(mock.workflowRuns).toHaveLength(1);
+    expect(JSON.parse(mock.workflowRuns[0].logs)).toHaveLength(2);
+
+    mock.workflows.get("wf_hook_dag")!.is_active = 0;
+    const inactiveRes = await worker.fetch(
+      new Request("https://shadowflow.work/webhook/wf_hook_dag", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ event: "signup" }),
+      }),
+      env
+    );
+    expect(inactiveRes.status).toBe(409);
+
+    const extraPathRes = await worker.fetch(
+      new Request("https://shadowflow.work/webhook/wf_hook_dag/extra", { method: "POST" }),
+      env
+    );
+    expect(extraPathRes.status).toBe(404);
+  });
+
+  it("verifies X-ShadowFlow-Signature HMAC-SHA256 and X-ShadowFlow-Timestamp replay window on POST /webhook/:id", async () => {
+    const mock = createMockDb();
+    const env = createEnv(mock.db);
+    const secret = "whsec_super_secret_hmac_key_32_chars";
+
+    mock.workflows.set("wf_signed", {
+      id: "wf_signed",
+      user_id: "u_1",
+      name: "Signed Webhook",
+      description: "",
+      nodes: JSON.stringify([
+        { id: "in", data: { flowType: "webhook", label: "In" } },
+        { id: "out", data: { flowType: "transform", label: "Out", config: { fields: { verified: true } } } },
+      ]),
+      edges: JSON.stringify([{ source: "in", target: "out" }]),
+      settings: JSON.stringify({ webhookSecret: secret, requireTimestamp: true, maxSkewSeconds: 300 }),
+      is_active: 1,
+      created_at: "2026-11-19T00:00:00.000Z",
+      updated_at: "2026-11-19T00:00:00.000Z",
+    });
+
+    const rawPayload = JSON.stringify({ order: "ord_99" });
+    const nowTs = Math.floor(Date.now() / 1000).toString();
+    const validSig = await signWebhookHmac(secret, `${nowTs}.${rawPayload}`);
+
+    const missingSigRes = await worker.fetch(
+      new Request("https://shadowflow.work/webhook/wf_signed", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: rawPayload,
+      }),
+      env
+    );
+    expect(missingSigRes.status).toBe(401);
+
+    const badSigRes = await worker.fetch(
+      new Request("https://shadowflow.work/webhook/wf_signed", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-ShadowFlow-Timestamp": nowTs,
+          "X-ShadowFlow-Signature": "sha256=" + "0".repeat(64),
+        },
+        body: rawPayload,
+      }),
+      env
+    );
+    expect(badSigRes.status).toBe(401);
+
+    const oldTs = (Math.floor(Date.now() / 1000) - 900).toString();
+    const staleSig = await signWebhookHmac(secret, `${oldTs}.${rawPayload}`);
+    const expiredRes = await worker.fetch(
+      new Request("https://shadowflow.work/webhook/wf_signed", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-ShadowFlow-Timestamp": oldTs,
+          "X-ShadowFlow-Signature": `sha256=${staleSig}`,
+        },
+        body: rawPayload,
+      }),
+      env
+    );
+    expect(expiredRes.status).toBe(401);
+
+    const okRes = await worker.fetch(
+      new Request("https://shadowflow.work/webhook/wf_signed", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-ShadowFlow-Timestamp": nowTs,
+          "X-ShadowFlow-Signature": `sha256=${validSig}`,
+        },
+        body: rawPayload,
+      }),
+      env
+    );
+    expect(okRes.status).toBe(202);
+    const okBody = (await okRes.json()) as { executedDag: boolean; output: { order: string; verified: boolean } };
+    expect(okBody.executedDag).toBe(true);
+    expect(okBody.output).toEqual({ order: "ord_99", verified: true });
   });
 });
