@@ -10,6 +10,7 @@ import {
   Key,
   Cpu,
   CheckCircle2,
+  Play,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -27,6 +28,14 @@ import {
   validateAndRepairWorkflow,
   type CopilotProvider,
 } from '@/lib/copilot/aiEngine';
+import {
+  GEMMA4_DEFAULT_BASE_URL,
+  GEMMA4_DEFAULT_MODEL,
+  checkGemma4Status,
+  executeWorkflowOnBackend,
+  gemma4FormatBackendOutput,
+  type Gemma4StatusResult,
+} from '@/lib/copilot/gemma4Frontend';
 import { graphMemory } from '@/lib/copilot/graphMemory';
 import ReactMarkdown from 'react-markdown';
 
@@ -55,9 +64,12 @@ const PROMPT_SUGGESTIONS = [
 ];
 
 const CopilotDrawer: FC<CopilotDrawerProps> = ({ isOpen, onClose, initialPrompt }) => {
-  const [provider, setProvider] = useState<CopilotProvider>('builtin');
+  const [provider, setProvider] = useState<CopilotProvider>('ollama');
   const [apiKey, setApiKey] = useState('');
-  const [ollamaUrl, setOllamaUrl] = useState('http://localhost:11434');
+  const [ollamaUrl, setOllamaUrl] = useState(GEMMA4_DEFAULT_BASE_URL);
+  const [gemmaModel, setGemmaModel] = useState(GEMMA4_DEFAULT_MODEL);
+  const [gemmaStatus, setGemmaStatus] = useState<Gemma4StatusResult | null>(null);
+  const [isRunningBackend, setIsRunningBackend] = useState(false);
   const [showKeyInput, setShowKeyInput] = useState(false);
   const [quotaInfo, setQuotaInfo] = useState<{ plan: string; limit: number | string; used: number; remaining: number | string } | null>(null);
   const initialTriggerRef = useRef<string | null>(null);
@@ -80,6 +92,21 @@ const CopilotDrawer: FC<CopilotDrawerProps> = ({ isOpen, onClose, initialPrompt 
     }
   }, [isOpen]);
 
+  useEffect(() => {
+    if (!isOpen || provider !== 'ollama') return;
+    let active = true;
+    checkGemma4Status(ollamaUrl).then((status) => {
+      if (!active) return;
+      setGemmaStatus(status);
+      if (status.online && status.models.length > 0) {
+        setGemmaModel((prev) => (status.models.includes(prev) ? prev : status.activeModel));
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, [isOpen, provider, ollamaUrl]);
+
   const [showMemoryInspector, setShowMemoryInspector] = useState(false);
   const [memoryNodesCount, setMemoryNodesCount] = useState(() => graphMemory.getNodeCount());
 
@@ -100,7 +127,7 @@ const CopilotDrawer: FC<CopilotDrawerProps> = ({ isOpen, onClose, initialPrompt 
         id: 'welcome',
         role: 'assistant',
         content:
-          "Hi! I'm your **Shadow Flow AI Copilot**.\n\n• **Shared Graph Memory**: Persists workflow knowledge, rules, and component graphs across all 3 engines.\n• **Zero-Cost Heuristic Mode**: Synthesizes and refactors multi-branch workflows 100% offline.\n• **Built-in Cloud AI**: Powered by Groq LPU with zero API keys needed!\n• **Local Ollama**: Connect Gemma 4 for private offline inference.\n• **Try Prompts**: *\"Lead generation pipeline with validation and CRM sync\"* or *\"Autonomous deep research with Firecrawl and Perplexity\"*.",
+          "Hi! I'm your **Gemma 4 Front-End Copilot** (`gemma4:latest`) connected to the **ShadowFlow Headless Backend**.\n\n• **Gemma 4 Front-End I/O**: Handles all user prompts, workflow generation, and output formatting locally via Ollama.\n• **Headless Backend Engine**: Cloudflare Worker executes topological DAGs, conditional branches, and D1 persistence via `/api/execute`.\n• **Shared Graph Memory**: Persists workflow knowledge, rules, and component graphs offline.\n• **Try Prompts**: *\"Lead generation pipeline with validation and CRM sync\"* or click **Run Backend**.",
       },
     ];
   };
@@ -187,6 +214,7 @@ const CopilotDrawer: FC<CopilotDrawerProps> = ({ isOpen, onClose, initialPrompt 
         promptText,
         {
           provider,
+          model: provider === 'ollama' ? gemmaModel : undefined,
           apiKey: apiKey.trim() || undefined,
           ollamaBaseUrl: ollamaUrl,
         },
@@ -263,6 +291,59 @@ const CopilotDrawer: FC<CopilotDrawerProps> = ({ isOpen, onClose, initialPrompt 
     });
   };
 
+  const handleRunBackend = async () => {
+    if (isRunningBackend || isLoading) return;
+    if (nodes.length === 0) {
+      toast({
+        title: 'No nodes on canvas',
+        description: 'Add or synthesize workflow nodes before running the headless backend.',
+      });
+      return;
+    }
+
+    setIsRunningBackend(true);
+    try {
+      const backendResult = await executeWorkflowOnBackend(
+        nodes,
+        edges,
+        { triggeredBy: 'gemma4-frontend' },
+        workflow?.id
+      );
+      const formatted = await gemma4FormatBackendOutput(
+        'Execute current workflow on backend and summarize results',
+        backendResult,
+        { baseUrl: ollamaUrl, model: gemmaModel }
+      );
+
+      const summaryMsg: Message = {
+        id: `backend-${Date.now()}`,
+        role: 'assistant',
+        content: formatted.text,
+        modeUsed: formatted.usedGemma4 ? `Gemma 4 (${formatted.formattedBy})` : 'Backend + Fallback Summary',
+      };
+      setMessages((prev) => [...prev, summaryMsg]);
+
+      toast({
+        title: 'Backend DAG Executed',
+        description: formatted.usedGemma4
+          ? `Output formatted by ${formatted.formattedBy}.`
+          : 'Completed via ShadowFlow Worker.',
+      });
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : 'Backend execution failed';
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `backend-err-${Date.now()}`,
+          role: 'assistant',
+          content: `Backend execution error: ${errMsg}`,
+        },
+      ]);
+    } finally {
+      setIsRunningBackend(false);
+    }
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
@@ -311,14 +392,31 @@ const CopilotDrawer: FC<CopilotDrawerProps> = ({ isOpen, onClose, initialPrompt 
               ))}
             </select>
             <Button
+              type="button"
               variant="outline"
               size="sm"
               className="h-7 px-2 text-[11px] gap-1"
               onClick={handleSelfHealGraph}
               title="Run validateAndRepairWorkflow on current canvas"
             >
-              <ShieldCheck className="w-3 h-3 text-emerald-500" />
+              <ShieldCheck className="w-3 h-3 text-emerald-500" aria-hidden="true" />
               Heal
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-7 px-2 text-[11px] gap-1"
+              onClick={handleRunBackend}
+              disabled={isRunningBackend || isLoading}
+              title="Execute current DAG on ShadowFlow headless backend and format output via Gemma 4"
+            >
+              {isRunningBackend ? (
+                <Loader2 className="w-3 h-3 animate-spin text-primary" aria-hidden="true" />
+              ) : (
+                <Play className="w-3 h-3 text-cyan-400" aria-hidden="true" />
+              )}
+              Run Backend
             </Button>
           </div>
 
@@ -336,13 +434,47 @@ const CopilotDrawer: FC<CopilotDrawerProps> = ({ isOpen, onClose, initialPrompt 
           )}
 
           {provider === 'ollama' && (
-            <div className="flex items-center gap-1.5">
-              <Input
-                value={ollamaUrl}
-                onChange={(e) => setOllamaUrl(e.target.value)}
-                placeholder="http://localhost:11434"
-                className="h-7 text-xs font-mono bg-background/80"
-              />
+            <div className="space-y-1.5">
+              <div className="flex items-center gap-1.5">
+                <Input
+                  value={ollamaUrl}
+                  onChange={(e) => setOllamaUrl(e.target.value)}
+                  placeholder="http://127.0.0.1:11434"
+                  className="h-7 text-xs font-mono bg-background/80 flex-1"
+                />
+                {gemmaStatus && gemmaStatus.models.length > 1 && (
+                  <select
+                    aria-label="Select Gemma 4 model"
+                    value={gemmaModel}
+                    onChange={(e) => setGemmaModel(e.target.value)}
+                    className="h-7 px-2 rounded-md border border-border bg-background/80 text-[11px] font-mono"
+                  >
+                    {gemmaStatus.models.map((m) => (
+                      <option key={m} value={m}>
+                        {m}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+              <div className="flex items-center justify-between px-2.5 py-1 rounded-md bg-cyan-500/10 border border-cyan-500/20 text-[11px]">
+                <span className="font-medium flex items-center gap-1.5 text-cyan-300">
+                  <span
+                    className={cn(
+                      'w-1.5 h-1.5 rounded-full',
+                      gemmaStatus?.online ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'
+                    )}
+                  />
+                  {gemmaStatus?.online
+                    ? `Gemma 4 Front-End Ready (${gemmaModel})`
+                    : gemmaStatus === null
+                      ? 'Checking local Ollama (127.0.0.1:11434)...'
+                      : 'Local Ollama offline — deterministic fallback ready'}
+                </span>
+                <span className="font-mono text-muted-foreground text-[10px]">
+                  Backend: shadowflow.work
+                </span>
+              </div>
             </div>
           )}
 

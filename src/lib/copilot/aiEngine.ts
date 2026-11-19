@@ -52,6 +52,11 @@ export interface GraphValidationReport {
 }
 
 export const COPILOT_MODELS: Record<CopilotProvider, { label: string; defaultModel: string; requiresKey: boolean }> = {
+  ollama: {
+    label: 'Gemma 4 Front-End (Local Ollama — gemma4:latest)',
+    defaultModel: 'gemma4:latest',
+    requiresKey: false,
+  },
   builtin: {
     label: 'Built-in Cloud AI (Groq LPU — Free 20/day, Pro 100/day, Max Unlimited)',
     defaultModel: 'qwen/qwen3.8-27b',
@@ -80,11 +85,6 @@ export const COPILOT_MODELS: Record<CopilotProvider, { label: string; defaultMod
   groq: {
     label: 'Groq LPU (Qwen 3.8 27B / Built-in)',
     defaultModel: 'qwen/qwen3.8-27b',
-    requiresKey: false,
-  },
-  ollama: {
-    label: 'Local Ollama (Gemma 4)',
-    defaultModel: 'gemma4:latest',
     requiresKey: false,
   },
 };
@@ -1036,13 +1036,14 @@ export async function synthesizeWorkflowWithAI(
       const data = (await res.json()) as { content?: string };
       rawJsonText = data.content || '';
     } else if (config.provider === 'ollama') {
-      const baseUrl = (config.ollamaBaseUrl || 'http://localhost:11434').replace(/\/$/, '');
+      const baseUrl = (config.ollamaBaseUrl || 'http://127.0.0.1:11434').replace(/\/$/, '');
       const res = await fetch(`${baseUrl}/api/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           model: config.model || COPILOT_MODELS.ollama.defaultModel,
           stream: false,
+          think: false,
           format: 'json',
           messages: [
             { role: 'system', content: systemInstruction },

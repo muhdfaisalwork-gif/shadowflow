@@ -107,6 +107,422 @@ function safeJsonParse<T>(value: unknown, fallback: T): T {
   }
 }
 
+async function readBoundedText(request: Request, maxBytes: number): Promise<{ text: string; tooLarge: boolean }> {
+  const declaredLen = parseInt(request.headers.get('content-length') || '0', 10);
+  if (Number.isFinite(declaredLen) && declaredLen > maxBytes) {
+    return { text: '', tooLarge: true };
+  }
+  if (!request.body) {
+    return { text: '', tooLarge: false };
+  }
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (value) {
+        total += value.byteLength;
+        if (total > maxBytes) {
+          await reader.cancel().catch(() => {});
+          return { text: '', tooLarge: true };
+        }
+        chunks.push(value);
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  const combined = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    combined.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return { text: new TextDecoder().decode(combined), tooLarge: false };
+}
+
+interface DagNodeInput {
+  id: string;
+  type?: string;
+  label?: string;
+  config?: Record<string, unknown>;
+  parameters?: Record<string, unknown>;
+  data?: {
+    label?: string;
+    type?: string;
+    flowType?: string;
+    config?: Record<string, unknown>;
+  };
+}
+
+interface DagEdgeInput {
+  id?: string;
+  source: string;
+  target: string;
+  sourceHandle?: string | null;
+  targetHandle?: string | null;
+}
+
+interface DagStepTrace {
+  nodeId: string;
+  label: string;
+  type: string;
+  status: 'completed' | 'skipped';
+  durationMs: number;
+  output: unknown;
+}
+
+type DagExecResult =
+  | {
+      ok: true;
+      executionOrder: string[];
+      stepsExecuted: number;
+      stepTraces: DagStepTrace[];
+      output: unknown;
+      totalDurationMs: number;
+    }
+  | {
+      ok: false;
+      status: number;
+      error: string;
+      cycleNodes?: string[];
+    };
+
+function getByDotPath(obj: unknown, path: string): unknown {
+  if (!path || obj === null || typeof obj !== 'object') return undefined;
+  const parts = path.split('.').filter(Boolean);
+  let cur: unknown = obj;
+  for (const part of parts) {
+    if (cur === null || typeof cur !== 'object') return undefined;
+    cur = (cur as Record<string, unknown>)[part];
+  }
+  return cur;
+}
+
+function interpolateTemplate(template: string, inputObj: unknown): string {
+  return template.replace(/\{\{\s*([a-zA-Z0-9_.-]+)\s*\}\}/g, (_match, key: string) => {
+    const val = getByDotPath(inputObj, key);
+    return val === undefined || val === null ? '' : String(val);
+  });
+}
+
+function evaluateCondition(
+  actual: unknown,
+  operator: string,
+  expected: unknown
+): boolean {
+  const op = operator.toLowerCase();
+  if (op === 'exists') {
+    return actual !== undefined && actual !== null && actual !== '';
+  }
+  if (op === 'eq' || op === '==' || op === '===') {
+    return actual === expected || String(actual) === String(expected);
+  }
+  if (op === 'neq' || op === '!=' || op === '!==') {
+    return actual !== expected && String(actual) !== String(expected);
+  }
+  const numActual = Number(actual);
+  const numExpected = Number(expected);
+  const bothNumeric = Number.isFinite(numActual) && Number.isFinite(numExpected) && actual !== '' && actual !== null && actual !== undefined;
+  if (op === 'gt' || op === '>') return bothNumeric && numActual > numExpected;
+  if (op === 'gte' || op === '>=') return bothNumeric && numActual >= numExpected;
+  if (op === 'lt' || op === '<') return bothNumeric && numActual < numExpected;
+  if (op === 'lte' || op === '<=') return bothNumeric && numActual <= numExpected;
+  if (op === 'contains') {
+    if (typeof actual === 'string') return actual.includes(String(expected ?? ''));
+    if (Array.isArray(actual)) return actual.includes(expected);
+    return false;
+  }
+  return Boolean(actual);
+}
+
+function executeDagGraph(
+  nodes: DagNodeInput[],
+  edges: DagEdgeInput[],
+  initialInput: unknown
+): DagExecResult {
+  if (nodes.length > 100) {
+    return { ok: false, status: 400, error: 'DAG limit exceeded: maximum 100 nodes allowed per execution' };
+  }
+  if (edges.length > 500) {
+    return { ok: false, status: 400, error: 'DAG limit exceeded: maximum 500 edges allowed per execution' };
+  }
+
+  const nodeMap = new Map<string, DagNodeInput>();
+  for (const node of nodes) {
+    const id = node && typeof node.id === 'string' ? node.id.trim() : '';
+    if (!id) {
+      return { ok: false, status: 400, error: 'Each DAG node requires a non-empty string id' };
+    }
+    if (nodeMap.has(id)) {
+      return { ok: false, status: 400, error: `Duplicate DAG node id: ${id}` };
+    }
+    nodeMap.set(id, node);
+  }
+
+  const inDegree = new Map<string, number>();
+  const outgoing = new Map<string, DagEdgeInput[]>();
+  for (const id of nodeMap.keys()) {
+    inDegree.set(id, 0);
+    outgoing.set(id, []);
+  }
+
+  for (const edge of edges) {
+    if (!edge || typeof edge.source !== 'string' || typeof edge.target !== 'string') continue;
+    const src = edge.source.trim();
+    const tgt = edge.target.trim();
+    if (!nodeMap.has(src) || !nodeMap.has(tgt)) continue;
+    outgoing.get(src)!.push(edge);
+    inDegree.set(tgt, (inDegree.get(tgt) ?? 0) + 1);
+  }
+
+  const hasIncoming = new Map<string, boolean>();
+  const queue: string[] = [];
+  for (const [id, deg] of inDegree.entries()) {
+    hasIncoming.set(id, deg > 0);
+    if (deg === 0) queue.push(id);
+  }
+
+  const executionOrder: string[] = [];
+  const tempInDegree = new Map(inDegree);
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+    executionOrder.push(current);
+    for (const edge of outgoing.get(current) || []) {
+      const nextDeg = (tempInDegree.get(edge.target) ?? 0) - 1;
+      tempInDegree.set(edge.target, nextDeg);
+      if (nextDeg === 0) {
+        queue.push(edge.target);
+      }
+    }
+  }
+
+  if (executionOrder.length !== nodeMap.size) {
+    const visited = new Set(executionOrder);
+    const cycleNodes = Array.from(nodeMap.keys()).filter((id) => !visited.has(id));
+    return {
+      ok: false,
+      status: 400,
+      error: 'Workflow graph contains a cycle',
+      cycleNodes,
+    };
+  }
+
+  const startTime = Date.now();
+  const activatedInputs = new Map<string, unknown[]>();
+  const stepTraces: DagStepTrace[] = [];
+  let stepsExecuted = 0;
+  let lastCompletedOutput: unknown = initialInput;
+
+  for (const nodeId of executionOrder) {
+    const node = nodeMap.get(nodeId)!;
+    const nodeType = String(node.data?.flowType || node.data?.type || node.type || 'action').toLowerCase();
+    const label = String(node.data?.label || node.label || nodeId);
+    const cfg = (node.data?.config || node.config || node.parameters || {}) as Record<string, unknown>;
+
+    const parentOutputs = activatedInputs.get(nodeId) || [];
+    const isRoot = !hasIncoming.get(nodeId);
+    if (!isRoot && parentOutputs.length === 0) {
+      stepTraces.push({
+        nodeId,
+        label,
+        type: nodeType,
+        status: 'skipped',
+        durationMs: 0,
+        output: null,
+      });
+      continue;
+    }
+
+    const stepStart = Date.now();
+    const currentInput = isRoot
+      ? initialInput
+      : nodeType === 'merge' || parentOutputs.length > 1
+        ? { merged: parentOutputs }
+        : parentOutputs[0];
+
+    let output: unknown;
+    let routeBranch: 'true' | 'false' | null = null;
+
+    if (nodeType === 'trigger' || nodeType === 'webhook' || nodeType === 'manual' || nodeType === 'schedule') {
+      output = currentInput;
+    } else if (nodeType === 'transform' || nodeType === 'set' || nodeType === 'template' || nodeType === 'format') {
+      const mapping = (cfg.fields && typeof cfg.fields === 'object'
+        ? cfg.fields
+        : cfg.mapping && typeof cfg.mapping === 'object'
+          ? cfg.mapping
+          : null) as Record<string, unknown> | null;
+      if (mapping) {
+        const base =
+          currentInput && typeof currentInput === 'object' && !Array.isArray(currentInput)
+            ? { ...(currentInput as Record<string, unknown>) }
+            : {};
+        for (const [k, v] of Object.entries(mapping)) {
+          base[k] = typeof v === 'string' ? interpolateTemplate(v, currentInput) : v;
+        }
+        output = base;
+      } else if (typeof cfg.template === 'string') {
+        output = {
+          rendered: interpolateTemplate(cfg.template, currentInput),
+          data: currentInput,
+        };
+      } else if (currentInput && typeof currentInput === 'object' && !Array.isArray(currentInput)) {
+        output = { ...(currentInput as Record<string, unknown>), transformed: true };
+      } else {
+        output = { value: currentInput, transformed: true };
+      }
+    } else if (nodeType === 'condition' || nodeType === 'if-else' || nodeType === 'filter') {
+      const field = String(cfg.field || '');
+      const operator = String(cfg.operator || 'exists');
+      const expected = cfg.value;
+      const actual = field ? getByDotPath(currentInput, field) : currentInput;
+      const matched = evaluateCondition(actual, operator, expected);
+      routeBranch = matched ? 'true' : 'false';
+      output = { matched, branch: routeBranch, field, actual, data: currentInput };
+    } else if (nodeType === 'merge') {
+      output = { merged: parentOutputs };
+    } else {
+      output = { nodeType, label, status: 'executed', input: currentInput };
+    }
+
+    const durationMs = Date.now() - stepStart;
+    stepsExecuted += 1;
+    lastCompletedOutput = output;
+    stepTraces.push({
+      nodeId,
+      label,
+      type: nodeType,
+      status: 'completed',
+      durationMs,
+      output,
+    });
+
+    for (const edge of outgoing.get(nodeId) || []) {
+      const handle = edge.sourceHandle ? String(edge.sourceHandle).toLowerCase() : '';
+      let shouldActivate = true;
+      if (routeBranch === 'true') {
+        shouldActivate = !handle || handle === 'output_0' || handle === 'true';
+      } else if (routeBranch === 'false') {
+        shouldActivate = handle === 'output_1' || handle === 'false';
+      }
+      if (shouldActivate) {
+        const list = activatedInputs.get(edge.target) || [];
+        list.push(output);
+        activatedInputs.set(edge.target, list);
+      }
+    }
+  }
+
+  return {
+    ok: true,
+    executionOrder,
+    stepsExecuted,
+    stepTraces,
+    output: lastCompletedOutput,
+    totalDurationMs: Date.now() - startTime,
+  };
+}
+
+const BACKEND_TOOLS_MANIFEST = {
+  architecture: {
+    frontend: 'gemma4:latest (Local Ollama — owns 100% of user input and output)',
+    backend: 'shadowflow-worker (Cloudflare Workers + D1 — headless API and DAG execution)',
+  },
+  baseUrl: 'https://shadowflow.work',
+  endpoints: {
+    check_backend_health: { method: 'GET', path: '/api/health', requiresAuth: false },
+    execute_dag: { method: 'POST', path: '/api/execute', requiresAuth: false },
+    list_workflows: { method: 'GET', path: '/api/workflows', requiresAuth: true },
+    create_workflow: { method: 'POST', path: '/api/workflows', requiresAuth: true },
+    execute_saved_workflow: { method: 'POST', path: '/api/workflows/:id/execute', requiresAuth: true },
+    get_workflow_runs: { method: 'GET', path: '/api/workflows/:id/runs', requiresAuth: true },
+  },
+  tools: [
+    {
+      type: 'function',
+      function: {
+        name: 'check_backend_health',
+        description: 'Check ShadowFlow Cloudflare Worker and D1 database health and latency.',
+        parameters: { type: 'object', properties: {}, required: [] },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'execute_dag',
+        description: 'Execute a DAG workflow graph on the headless ShadowFlow backend using topological sorting and conditional routing.',
+        parameters: {
+          type: 'object',
+          properties: {
+            workflowId: { type: 'string', description: 'Optional workflow ID label.' },
+            nodes: { type: 'array', description: 'Array of DAG nodes with id, type, label, and config.' },
+            edges: { type: 'array', description: 'Array of DAG edges with source, target, and optional sourceHandle.' },
+            input: { type: 'object', description: 'Initial JSON payload entering root nodes.' },
+          },
+          required: ['nodes'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'list_workflows',
+        description: 'List workflows saved in D1 for the authenticated user.',
+        parameters: { type: 'object', properties: {}, required: [] },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'create_workflow',
+        description: 'Create and persist a workflow definition in D1.',
+        parameters: {
+          type: 'object',
+          properties: {
+            name: { type: 'string' },
+            description: { type: 'string' },
+            nodes: { type: 'array' },
+            edges: { type: 'array' },
+          },
+          required: ['name', 'nodes', 'edges'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'execute_saved_workflow',
+        description: 'Execute a saved workflow in D1 by ID and persist the run trace in workflow_runs.',
+        parameters: {
+          type: 'object',
+          properties: {
+            workflowId: { type: 'string' },
+            input: { type: 'object' },
+          },
+          required: ['workflowId'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'get_workflow_runs',
+        description: 'Retrieve recent execution run traces stored in D1 workflow_runs for a workflow.',
+        parameters: {
+          type: 'object',
+          properties: {
+            workflowId: { type: 'string' },
+            limit: { type: 'number' },
+          },
+          required: ['workflowId'],
+        },
+      },
+    },
+  ],
+};
+
 // ----------------------------------------------------------------------------
 // Cryptographic Helpers (Web Crypto API)
 // ----------------------------------------------------------------------------
@@ -1585,6 +2001,107 @@ export default {
       );
     }
 
+    // POST /api/workflows/:id/execute - Execute saved D1 workflow and persist run trace
+    if (url.pathname.startsWith('/api/workflows/') && request.method === 'POST') {
+      const parts = url.pathname.split('/');
+      if (parts.length !== 5 || !parts[3] || parts[4] !== 'execute') {
+        return jsonResponse({ error: 'API Endpoint Not Found', path: url.pathname }, 404, request);
+      }
+
+      const user = await getAuthUser(request, env);
+      if (!user) {
+        return jsonResponse({ error: 'Unauthorized' }, 401, request);
+      }
+
+      const workflowId = parts[3].trim();
+      const wf = (await env.DB.prepare(
+        'SELECT id, name, nodes, edges, is_active FROM workflows WHERE id = ? AND user_id = ?'
+      )
+        .bind(workflowId, user.id)
+        .first()) as Record<string, unknown> | null;
+
+      if (!wf) {
+        return jsonResponse({ error: 'Workflow not found' }, 404, request);
+      }
+
+      const { text: rawBody, tooLarge } = await readBoundedText(request, 256 * 1024);
+      if (tooLarge) {
+        return jsonResponse({ error: 'Payload Too Large: maximum execution payload is 256KB' }, 413, request);
+      }
+
+      let bodyInput: unknown = {};
+      if (rawBody.trim().length > 0) {
+        try {
+          const parsed = JSON.parse(rawBody) as { input?: unknown };
+          bodyInput = parsed.input ?? {};
+        } catch {
+          return jsonResponse({ error: 'Invalid JSON execution payload' }, 400, request);
+        }
+      }
+
+      const nodes = safeJsonParse<DagNodeInput[]>(wf.nodes, []);
+      const edges = safeJsonParse<DagEdgeInput[]>(wf.edges, []);
+      const startedAt = new Date().toISOString();
+      const executionId = randomId('exec');
+      const dagResult = executeDagGraph(nodes, edges, bodyInput);
+      const finishedAt = new Date().toISOString();
+
+      try {
+        await env.DB.prepare(
+          'INSERT INTO workflow_runs (id, workflow_id, status, started_at, finished_at, error_log, logs) VALUES (?, ?, ?, ?, ?, ?, ?)'
+        )
+          .bind(
+            executionId,
+            workflowId,
+            dagResult.ok ? 'success' : 'failed',
+            startedAt,
+            finishedAt,
+            dagResult.ok ? null : dagResult.error,
+            JSON.stringify(
+              dagResult.ok ? dagResult.stepTraces : [{ error: dagResult.error, cycleNodes: dagResult.cycleNodes }]
+            )
+          )
+          .run();
+      } catch {
+        // Continue even if run logging fails
+      }
+
+      if (!dagResult.ok) {
+        return jsonResponse(
+          {
+            success: false,
+            executionId,
+            workflowId,
+            workflowName: String(wf.name),
+            error: dagResult.error,
+            cycleNodes: dagResult.cycleNodes,
+          },
+          dagResult.status,
+          request
+        );
+      }
+
+      return jsonResponse(
+        {
+          success: true,
+          executionId,
+          workflowId,
+          workflowName: String(wf.name),
+          isActive: Boolean(wf.is_active),
+          nodesCount: nodes.length,
+          edgesCount: edges.length,
+          executionOrder: dagResult.executionOrder,
+          stepsExecuted: dagResult.stepsExecuted,
+          stepTraces: dagResult.stepTraces,
+          output: dagResult.output,
+          totalDurationMs: dagResult.totalDurationMs,
+          processedAt: finishedAt,
+        },
+        200,
+        request
+      );
+    }
+
     // PUT /api/workflows/:id
     if (url.pathname.startsWith('/api/workflows/') && request.method === 'PUT') {
       const user = await getAuthUser(request, env);
@@ -1741,18 +2258,16 @@ export default {
 
     // Webhook receiver endpoint
     if (url.pathname.startsWith('/webhook/')) {
-      const contentLength = parseInt(request.headers.get('content-length') || '0', 10);
-      if (contentLength > 256 * 1024) {
-        return jsonResponse({ error: 'Payload Too Large: maximum webhook payload is 256KB' }, 413, request);
-      }
-
       const workflowId = url.pathname.slice('/webhook/'.length).replace(/\/+$/, '').trim();
       if (!workflowId) {
         return jsonResponse({ error: 'Missing workflow ID in webhook path' }, 400, request);
       }
 
-      const rawBody = request.method === 'GET' || request.method === 'HEAD' ? '' : await request.text();
-      if (new TextEncoder().encode(rawBody).length > 256 * 1024) {
+      const { text: rawBody, tooLarge } =
+        request.method === 'GET' || request.method === 'HEAD'
+          ? { text: '', tooLarge: false }
+          : await readBoundedText(request, 256 * 1024);
+      if (tooLarge) {
         return jsonResponse({ error: 'Payload Too Large: maximum webhook payload is 256KB' }, 413, request);
       }
 
@@ -2490,7 +3005,17 @@ Write the full article now in Markdown.`;
       }
     }
 
-    // Safe execution step evaluator & DAG execution endpoint
+    // GET / HEAD /api/backend/tools - Headless backend tool manifest for Gemma 4 front-end
+    if (url.pathname === '/api/backend/tools' && (request.method === 'GET' || request.method === 'HEAD')) {
+      return jsonResponse(
+        BACKEND_TOOLS_MANIFEST,
+        200,
+        request,
+        { 'Cache-Control': 'public, max-age=60' }
+      );
+    }
+
+    // Safe execution step evaluator & topological DAG execution endpoint
     if (url.pathname === '/api/execute' || url.pathname === '/api/execute-step') {
       if (request.method === 'GET' || request.method === 'HEAD') {
         return jsonResponse(
@@ -2515,24 +3040,66 @@ Write the full article now in Markdown.`;
 
       if (request.method === 'POST') {
         try {
-          const body = (await request.json()) as {
+          const { text: rawBody, tooLarge } = await readBoundedText(request, 256 * 1024);
+          if (tooLarge) {
+            return jsonResponse({ error: 'Payload Too Large: maximum execution payload is 256KB' }, 413, request);
+          }
+
+          let body: {
             operation?: string;
             input?: unknown;
             workflowId?: string;
-            nodes?: unknown[];
-            edges?: unknown[];
+            nodes?: DagNodeInput[];
+            edges?: DagEdgeInput[];
           };
-          const nodesCount = Array.isArray(body.nodes) ? body.nodes.length : 0;
-          const edgesCount = Array.isArray(body.edges) ? body.edges.length : 0;
+          try {
+            body = (rawBody.trim().length > 0 ? JSON.parse(rawBody) : {}) as typeof body;
+          } catch {
+            return jsonResponse({ error: 'Invalid JSON execution payload' }, 400, request);
+          }
+
+          if (Array.isArray(body.nodes) && body.nodes.length > 0) {
+            const edgesList = Array.isArray(body.edges) ? body.edges : [];
+            const dagResult = executeDagGraph(body.nodes, edgesList, body.input ?? {});
+            if (!dagResult.ok) {
+              return jsonResponse(
+                {
+                  success: false,
+                  error: dagResult.error,
+                  cycleNodes: dagResult.cycleNodes,
+                },
+                dagResult.status,
+                request
+              );
+            }
+
+            return jsonResponse(
+              {
+                success: true,
+                operation: body.operation || (url.pathname === '/api/execute' ? 'dag-execution' : 'pass-through'),
+                workflowId: body.workflowId || null,
+                nodesCount: body.nodes.length,
+                edgesCount: edgesList.length,
+                executionOrder: dagResult.executionOrder,
+                stepsExecuted: dagResult.stepsExecuted,
+                stepTraces: dagResult.stepTraces,
+                output: dagResult.output,
+                totalDurationMs: dagResult.totalDurationMs,
+                processedAt: new Date().toISOString(),
+              },
+              200,
+              request
+            );
+          }
 
           return jsonResponse(
             {
               success: true,
               operation: body.operation || (url.pathname === '/api/execute' ? 'dag-execution' : 'pass-through'),
               workflowId: body.workflowId || null,
-              nodesCount,
-              edgesCount,
-              output: body.input ?? { status: 'completed', stepsExecuted: nodesCount || 1 },
+              nodesCount: 0,
+              edgesCount: Array.isArray(body.edges) ? body.edges.length : 0,
+              output: body.input ?? { status: 'completed', stepsExecuted: 1 },
               processedAt: new Date().toISOString(),
             },
             200,

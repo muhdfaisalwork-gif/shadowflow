@@ -96,6 +96,11 @@ function createMockDb(options?: { failHealthCheck?: boolean }): {
           const wf = workflows.get(wfId);
           return (wf && wf.user_id === userId ? { id: wf.id } : null) as T | null;
         }
+        if (query.startsWith("SELECT id, name, nodes, edges, is_active FROM workflows WHERE id = ? AND user_id = ?")) {
+          const [wfId, userId] = args as string[];
+          const wf = workflows.get(wfId);
+          return (wf && wf.user_id === userId ? wf : null) as T | null;
+        }
         return null;
       },
       run: async () => {
@@ -552,5 +557,201 @@ describe("Worker Backend Security & Contract Suite", () => {
     expect(body.workflows[0].nodes).toEqual([]);
     expect(body.workflows[0].edges).toEqual([]);
     expect(body.workflows[0].settings).toEqual({});
+  });
+
+  it("executes a branching DAG via POST /api/execute with topological order and branch skipping", async () => {
+    const mock = createMockDb();
+    const res = await worker.fetch(
+      new Request("https://shadowflow.work/api/execute", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          input: { amount: 250, customer: "Acme" },
+          nodes: [
+            { id: "n1", type: "webhook", label: "Inbound Webhook" },
+            {
+              id: "n2",
+              type: "transform",
+              label: "Enrich Summary",
+              config: { fields: { summary: "Order from {{customer}}" } },
+            },
+            {
+              id: "n3",
+              type: "if-else",
+              label: "Amount > 100?",
+              config: { field: "amount", operator: "gt", value: 100 },
+            },
+            { id: "n4_true", type: "slack", label: "VIP Slack Alert" },
+            { id: "n5_false", type: "email", label: "Standard Email" },
+          ],
+          edges: [
+            { source: "n1", target: "n2" },
+            { source: "n2", target: "n3" },
+            { source: "n3", target: "n4_true", sourceHandle: "output_0" },
+            { source: "n3", target: "n5_false", sourceHandle: "output_1" },
+          ],
+        }),
+      }),
+      createEnv(mock.db)
+    );
+
+    expect(res.status).toBe(200);
+    const data = (await res.json()) as {
+      success: boolean;
+      executionOrder: string[];
+      stepsExecuted: number;
+      stepTraces: Array<{ nodeId: string; status: string; output: unknown }>;
+    };
+    expect(data.success).toBe(true);
+    expect(data.executionOrder.slice(0, 3)).toEqual(["n1", "n2", "n3"]);
+    expect(data.stepsExecuted).toBe(4);
+
+    const transformTrace = data.stepTraces.find((t) => t.nodeId === "n2");
+    expect((transformTrace?.output as { summary?: string })?.summary).toBe("Order from Acme");
+    expect(data.stepTraces.find((t) => t.nodeId === "n4_true")?.status).toBe("completed");
+    expect(data.stepTraces.find((t) => t.nodeId === "n5_false")?.status).toBe("skipped");
+  });
+
+  it("detects cyclic DAGs on POST /api/execute and returns HTTP 400 with cycleNodes", async () => {
+    const mock = createMockDb();
+    const res = await worker.fetch(
+      new Request("https://shadowflow.work/api/execute", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          nodes: [
+            { id: "n1", type: "transform", label: "Step 1" },
+            { id: "n2", type: "transform", label: "Step 2" },
+          ],
+          edges: [
+            { source: "n1", target: "n2" },
+            { source: "n2", target: "n1" },
+          ],
+        }),
+      }),
+      createEnv(mock.db)
+    );
+
+    expect(res.status).toBe(400);
+    const data = (await res.json()) as { success: boolean; error: string; cycleNodes: string[] };
+    expect(data.success).toBe(false);
+    expect(data.error).toContain("cycle");
+    expect(data.cycleNodes).toEqual(["n1", "n2"]);
+  });
+
+  it("enforces auth and ownership on POST /api/workflows/:id/execute and persists runs", async () => {
+    const mock = createMockDb();
+    const env = createEnv(mock.db);
+
+    const ownerSignup = await worker.fetch(
+      new Request("https://shadowflow.work/api/auth/signup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: "exec-owner@example.com", password: "strong-password-123" }),
+      }),
+      env
+    );
+    const owner = (await ownerSignup.json()) as { user: { id: string }; token: string };
+
+    const otherSignup = await worker.fetch(
+      new Request("https://shadowflow.work/api/auth/signup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: "exec-other@example.com", password: "strong-password-123" }),
+      }),
+      env
+    );
+    const other = (await otherSignup.json()) as { token: string };
+
+    mock.workflows.set("wf_exec", {
+      id: "wf_exec",
+      user_id: owner.user.id,
+      name: "Persisted Order Pipeline",
+      description: "",
+      nodes: JSON.stringify([
+        { id: "start", data: { flowType: "webhook", label: "Start" } },
+        { id: "end", data: { flowType: "transform", label: "Finish", config: { fields: { done: true } } } },
+      ]),
+      edges: JSON.stringify([{ source: "start", target: "end" }]),
+      settings: "{}",
+      is_active: 1,
+      created_at: "2026-11-19T00:00:00.000Z",
+      updated_at: "2026-11-19T00:00:00.000Z",
+    });
+
+    const unauthRes = await worker.fetch(
+      new Request("https://shadowflow.work/api/workflows/wf_exec/execute", { method: "POST" }),
+      env
+    );
+    expect(unauthRes.status).toBe(401);
+
+    const forbiddenRes = await worker.fetch(
+      new Request("https://shadowflow.work/api/workflows/wf_exec/execute", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${other.token}` },
+      }),
+      env
+    );
+    expect(forbiddenRes.status).toBe(404);
+
+    const execRes = await worker.fetch(
+      new Request("https://shadowflow.work/api/workflows/wf_exec/execute", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${owner.token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ input: { orderId: 42 } }),
+      }),
+      env
+    );
+    expect(execRes.status).toBe(200);
+    const execBody = (await execRes.json()) as {
+      success: boolean;
+      stepsExecuted: number;
+      output: { orderId: number; done: boolean };
+    };
+    expect(execBody.success).toBe(true);
+    expect(execBody.stepsExecuted).toBe(2);
+    expect(execBody.output).toEqual({ orderId: 42, done: true });
+
+    const runsRes = await worker.fetch(
+      new Request("https://shadowflow.work/api/workflows/wf_exec/runs", {
+        headers: { Authorization: `Bearer ${owner.token}` },
+      }),
+      env
+    );
+    expect(runsRes.status).toBe(200);
+    const runsBody = (await runsRes.json()) as { count: number; runs: Array<{ status: string; logs: unknown[] }> };
+    expect(runsBody.count).toBe(1);
+    expect(runsBody.runs[0].status).toBe("success");
+    expect(runsBody.runs[0].logs).toHaveLength(2);
+  });
+
+  it("exposes GET and HEAD /api/backend/tools manifest for Gemma 4 front-end orchestration", async () => {
+    const mock = createMockDb();
+    const env = createEnv(mock.db);
+
+    const getRes = await worker.fetch(
+      new Request("https://shadowflow.work/api/backend/tools"),
+      env
+    );
+    expect(getRes.status).toBe(200);
+    expect(getRes.headers.get("Content-Type")).toContain("application/json");
+    const manifest = (await getRes.json()) as {
+      architecture: { frontend: string; backend: string };
+      tools: Array<{ function: { name: string } }>;
+    };
+    expect(manifest.architecture.frontend).toContain("gemma4");
+    expect(manifest.architecture.backend).toContain("shadowflow-worker");
+    expect(manifest.tools.map((t) => t.function.name)).toContain("execute_dag");
+
+    const headRes = await worker.fetch(
+      new Request("https://shadowflow.work/api/backend/tools", { method: "HEAD" }),
+      env
+    );
+    expect(headRes.status).toBe(200);
+    expect(headRes.headers.get("Content-Type")).toContain("application/json");
+    expect(await headRes.text()).toBe("");
   });
 });
