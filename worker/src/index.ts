@@ -197,6 +197,18 @@ function validateWorkflowPayload(
   return null;
 }
 
+function formatWorkflowRunRow(r: Record<string, unknown>) {
+  return {
+    id: String(r.id),
+    workflow_id: String(r.workflow_id),
+    status: String(r.status),
+    started_at: String(r.started_at),
+    finished_at: r.finished_at ? String(r.finished_at) : null,
+    error_log: r.error_log ? String(r.error_log) : null,
+    logs: safeJsonParse(r.logs, []),
+  };
+}
+
 interface DagNodeInput {
   id: string;
   type?: string;
@@ -494,6 +506,7 @@ const BACKEND_TOOLS_MANIFEST = {
     delete_workflow: { method: 'DELETE', path: '/api/workflows/:id', requiresAuth: true },
     execute_saved_workflow: { method: 'POST', path: '/api/workflows/:id/execute', requiresAuth: true },
     get_workflow_runs: { method: 'GET', path: '/api/workflows/:id/runs', requiresAuth: true },
+    get_workflow_run: { method: 'GET', path: '/api/workflows/:id/runs/:runId', requiresAuth: true },
     trigger_webhook: { method: 'POST', path: '/webhook/:id', requiresAuth: false },
   },
   tools: [
@@ -574,6 +587,21 @@ const BACKEND_TOOLS_MANIFEST = {
             limit: { type: 'number' },
           },
           required: ['workflowId'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'get_workflow_run',
+        description: 'Retrieve a single workflow run trace by workflowId and runId from D1 workflow_runs.',
+        parameters: {
+          type: 'object',
+          properties: {
+            workflowId: { type: 'string' },
+            runId: { type: 'string' },
+          },
+          required: ['workflowId', 'runId'],
         },
       },
     },
@@ -1324,11 +1352,17 @@ export default {
 
     // POST /api/auth/signup
     if (url.pathname === '/api/auth/signup' && request.method === 'POST') {
+      const parsed = await readBoundedJson<Record<string, unknown>>(request, 16 * 1024);
+      if (!parsed.ok) {
+        return jsonResponse({ error: parsed.error }, parsed.status, request);
+      }
+      const body = parsed.data;
+
       try {
-        const body = (await request.json()) as { email?: string; password?: string; displayName?: string };
-        const email = body.email?.trim().toLowerCase();
-        const password = body.password?.trim();
-        const displayName = body.displayName?.trim() || email?.split('@')[0] || 'User';
+        const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
+        const password = typeof body.password === 'string' ? body.password.trim() : '';
+        const displayName =
+          (typeof body.displayName === 'string' ? body.displayName.trim() : '') || email.split('@')[0] || 'User';
 
         if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || !password || password.length < 8) {
           return jsonResponse({ error: 'Valid email and password (minimum 8 characters) required' }, 400, request);
@@ -1344,9 +1378,11 @@ export default {
         }
 
         const { hash, salt } = await hashPassword(password);
-        const userId = ((body as { id?: string }).id && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test((body as { id?: string }).id!))
-          ? (body as { id?: string }).id!
-          : crypto.randomUUID();
+        const requestedId = typeof body.id === 'string' ? body.id : '';
+        const userId =
+          /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(requestedId)
+            ? requestedId
+            : crypto.randomUUID();
         const now = new Date().toISOString();
 
         await env.DB.prepare(
@@ -1379,11 +1415,16 @@ export default {
 
     // POST /api/auth/login
     if (url.pathname === '/api/auth/login' && request.method === 'POST') {
+      const parsed = await readBoundedJson<Record<string, unknown>>(request, 16 * 1024);
+      if (!parsed.ok) {
+        return jsonResponse({ error: parsed.error }, parsed.status, request);
+      }
+      const body = parsed.data;
+
       try {
-        const body = (await request.json()) as { email?: string; password?: string; tfaCode?: string };
-        const email = body.email?.trim().toLowerCase();
-        const password = body.password?.trim();
-        const tfaCode = body.tfaCode?.trim();
+        const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
+        const password = typeof body.password === 'string' ? body.password.trim() : '';
+        const tfaCode = typeof body.tfaCode === 'string' ? body.tfaCode.trim() : undefined;
 
         if (!email || !password) {
           return jsonResponse({ error: 'Email and password are required' }, 400, request);
@@ -1507,10 +1548,15 @@ export default {
 
     // POST /api/auth/login/2fa - Complete 2FA login challenge
     if (url.pathname === '/api/auth/login/2fa' && request.method === 'POST') {
+      const parsed = await readBoundedJson<Record<string, unknown>>(request, 16 * 1024);
+      if (!parsed.ok) {
+        return jsonResponse({ error: parsed.error }, parsed.status, request);
+      }
+      const body = parsed.data;
+
       try {
-        const body = (await request.json()) as { tempToken?: string; code?: string };
-        const tempToken = body.tempToken?.trim();
-        const code = body.code?.trim();
+        const tempToken = typeof body.tempToken === 'string' ? body.tempToken.trim() : '';
+        const code = typeof body.code === 'string' ? body.code.trim() : '';
 
         if (!tempToken || !code) {
           return jsonResponse({ error: 'Challenge token and code are required' }, 400, request);
@@ -1603,9 +1649,14 @@ export default {
 
     // POST /api/auth/login/2fa/resend - Resend 2FA verification email code
     if (url.pathname === '/api/auth/login/2fa/resend' && request.method === 'POST') {
+      const parsed = await readBoundedJson<Record<string, unknown>>(request, 16 * 1024);
+      if (!parsed.ok) {
+        return jsonResponse({ error: parsed.error }, parsed.status, request);
+      }
+      const body = parsed.data;
+
       try {
-        const body = (await request.json()) as { tempToken?: string };
-        const tempToken = body.tempToken?.trim();
+        const tempToken = typeof body.tempToken === 'string' ? body.tempToken.trim() : '';
 
         if (!tempToken) {
           return jsonResponse({ error: 'Challenge token is required' }, 400, request);
@@ -1735,13 +1786,18 @@ export default {
       const user = await getAuthUser(request, env);
       if (!user) return jsonResponse({ error: 'Unauthorized' }, 401, request);
 
-      const body = (await request.json()) as { code?: string; secret?: string; method?: string };
-      const code = body.code?.trim();
+      const parsed = await readBoundedJson<Record<string, unknown>>(request, 16 * 1024);
+      if (!parsed.ok) {
+        return jsonResponse({ error: parsed.error }, parsed.status, request);
+      }
+      const body = parsed.data;
+      const code = typeof body.code === 'string' ? body.code.trim() : '';
       if (!code || code.length !== 6) {
         return jsonResponse({ error: 'A 6-digit verification code is required' }, 400, request);
       }
 
       const method = body.method === 'email' ? 'email' : 'totp';
+      const secretArg = typeof body.secret === 'string' ? body.secret.trim() : '';
 
       if (method === 'email') {
         const row = (await env.DB.prepare(
@@ -1775,7 +1831,7 @@ export default {
         'SELECT secret FROM user_tfa WHERE user_id = ?'
       ).bind(user.id).first()) as { secret: string } | null;
 
-      const secretToVerify = body.secret?.trim() || row?.secret;
+      const secretToVerify = secretArg || row?.secret;
       if (!secretToVerify) {
         return jsonResponse({ error: 'No 2FA setup in progress. Please initiate setup first.' }, 400, request);
       }
@@ -1852,9 +1908,13 @@ export default {
     // The link opens a page in the app that sends this POST, so mail scanners that
     // prefetch links with GET cannot burn the token.
     if (url.pathname === '/api/auth/verify-email' && request.method === 'POST') {
+      const parsed = await readBoundedJson<Record<string, unknown>>(request, 16 * 1024, { allowEmpty: true });
+      if (!parsed.ok) {
+        return jsonResponse({ error: parsed.error }, parsed.status, request);
+      }
+
       try {
-        const body = (await request.json().catch(() => ({}))) as { token?: string };
-        const token = String(body.token || '').trim().toLowerCase();
+        const token = typeof parsed.data.token === 'string' ? parsed.data.token.trim().toLowerCase() : '';
         const invalid = () =>
           jsonResponse({ error: 'This verification link is invalid or has expired. Request a new one from your dashboard.' }, 400, request);
 
@@ -2067,6 +2127,9 @@ export default {
       }
 
       if (parts[4] === 'versions') {
+        if (parts.length > 5) {
+          return jsonResponse({ error: 'Workflow subresource not found' }, 404, request);
+        }
         const wf = await env.DB.prepare('SELECT id FROM workflows WHERE id = ? AND user_id = ?').bind(workflowId, user.id).first();
         if (!wf) {
           return jsonResponse({ error: 'Workflow not found' }, 404, request);
@@ -2082,11 +2145,28 @@ export default {
       }
 
       if (parts[4] === 'runs') {
+        if (parts.length > 6) {
+          return jsonResponse({ error: 'Workflow subresource not found' }, 404, request);
+        }
         const wf = await env.DB.prepare('SELECT id FROM workflows WHERE id = ? AND user_id = ?')
           .bind(workflowId, user.id)
           .first();
         if (!wf) {
           return jsonResponse({ error: 'Workflow not found' }, 404, request);
+        }
+
+        const runId = parts.length === 6 ? parts[5].trim() : '';
+        if (runId) {
+          const runRow = (await env.DB.prepare(
+            'SELECT id, workflow_id, status, started_at, finished_at, error_log, logs FROM workflow_runs WHERE id = ? AND workflow_id = ?'
+          )
+            .bind(runId, workflowId)
+            .first()) as Record<string, unknown> | null;
+
+          if (!runRow) {
+            return jsonResponse({ error: 'Run not found' }, 404, request);
+          }
+          return jsonResponse({ run: formatWorkflowRunRow(runRow) }, 200, request);
         }
 
         const rawLimit = parseInt(url.searchParams.get('limit') || '25', 10);
@@ -2096,15 +2176,7 @@ export default {
         )
           .bind(workflowId, limit)
           .all<Record<string, unknown>>();
-        const runs = (rows.results || []).map((r) => ({
-          id: String(r.id),
-          workflow_id: String(r.workflow_id),
-          status: String(r.status),
-          started_at: String(r.started_at),
-          finished_at: r.finished_at ? String(r.finished_at) : null,
-          error_log: r.error_log ? String(r.error_log) : null,
-          logs: safeJsonParse(r.logs, []),
-        }));
+        const runs = (rows.results || []).map(formatWorkflowRunRow);
         return jsonResponse({ runs, count: runs.length }, 200, request);
       }
 
@@ -2668,13 +2740,53 @@ export default {
 
     // POST /api/copilot/chat - Built-in AI Copilot with Daily Quota (20 Free / 100 Pro / Unlimited Max)
     if (url.pathname === '/api/copilot/chat' && request.method === 'POST') {
-      try {
-        const body = (await request.json()) as {
-          prompt?: string;
-          messages?: Array<{ role: string; content: string }>;
-          formatJson?: boolean;
-        };
+      const parsed = await readBoundedJson<{
+        prompt?: unknown;
+        messages?: unknown;
+        formatJson?: unknown;
+      }>(request, 128 * 1024);
+      if (!parsed.ok) {
+        return jsonResponse({ error: parsed.error }, parsed.status, request);
+      }
+      const body = parsed.data;
 
+      let messages: Array<{ role: string; content: string }> | undefined;
+      if (body.messages !== undefined) {
+        if (!Array.isArray(body.messages) || body.messages.length === 0 || body.messages.length > 50) {
+          return jsonResponse({ error: 'messages must be a non-empty array with at most 50 entries' }, 400, request);
+        }
+        const validated: Array<{ role: string; content: string }> = [];
+        for (const item of body.messages) {
+          if (
+            !item ||
+            typeof item !== 'object' ||
+            Array.isArray(item) ||
+            typeof (item as { role?: unknown }).role !== 'string' ||
+            !(item as { role: string }).role.trim() ||
+            typeof (item as { content?: unknown }).content !== 'string'
+          ) {
+            return jsonResponse({ error: 'Each message must include a non-empty role and string content' }, 400, request);
+          }
+          validated.push({
+            role: (item as { role: string }).role.trim(),
+            content: (item as { content: string }).content,
+          });
+        }
+        messages = validated;
+      } else if (typeof body.prompt === 'string' && body.prompt.trim().length > 0) {
+        messages = [
+          {
+            role: 'system',
+            content:
+              'You are Shadow Flow Copilot, an expert AI workflow architect. Return concise, direct architectural guidance or valid JSON for workflow steps. No excessive conversational filler.',
+          },
+          { role: 'user', content: body.prompt.trim() },
+        ];
+      } else {
+        return jsonResponse({ error: 'Missing prompt or messages parameter' }, 400, request);
+      }
+
+      try {
         const { userId } = await getEffectiveUserId(request, env);
         const quota = await checkAndIncrementUsage(userId, env);
 
@@ -2691,22 +2803,6 @@ export default {
             429,
             request
           );
-        }
-
-        let messages = body.messages;
-        if (!messages && body.prompt) {
-          messages = [
-            {
-              role: 'system',
-              content:
-                'You are Shadow Flow Copilot, an expert AI workflow architect. Return concise, direct architectural guidance or valid JSON for workflow steps. No excessive conversational filler.',
-            },
-            { role: 'user', content: body.prompt },
-          ];
-        }
-
-        if (!messages || messages.length === 0) {
-          return jsonResponse({ error: 'Missing prompt or messages parameter' }, 400, request);
         }
 
         const isJson = Boolean(body.formatJson);
@@ -2776,42 +2872,52 @@ export default {
       if (!user) {
         return jsonResponse({ error: 'Unauthorized' }, 401, request);
       }
-      try {
-        const body = (await request.json()) as {
-          nodes?: Array<{ id: string; type?: string; label: string; properties?: Record<string, unknown> }>;
-        };
-        if (!body.nodes || !Array.isArray(body.nodes)) {
-          return jsonResponse({ error: 'Missing or invalid "nodes" array' }, 400, request);
-        }
 
+      const parsed = await readBoundedJson<{ nodes?: unknown }>(request, 256 * 1024);
+      if (!parsed.ok) {
+        return jsonResponse({ error: parsed.error }, parsed.status, request);
+      }
+      const rawNodes = parsed.data.nodes;
+      if (!Array.isArray(rawNodes)) {
+        return jsonResponse({ error: 'Missing or invalid "nodes" array' }, 400, request);
+      }
+      if (rawNodes.length > 200) {
+        return jsonResponse({ error: 'Maximum of 200 memory nodes allowed per request' }, 400, request);
+      }
+
+      try {
         const now = new Date().toISOString();
-        let inserted = 0;
-        for (const node of body.nodes) {
-          if (!node.id || !node.label) continue;
-          await env.DB.prepare(
-            `INSERT INTO user_graph_memory (id, user_id, node_type, label, data, created_at, updated_at)
+        const stmts: D1PreparedStatement[] = [];
+        const upsertSql = `INSERT INTO user_graph_memory (id, user_id, node_type, label, data, created_at, updated_at)
              VALUES (?, ?, ?, ?, ?, ?, ?)
              ON CONFLICT(id) DO UPDATE SET
                label = excluded.label,
                node_type = excluded.node_type,
                data = excluded.data,
                updated_at = excluded.updated_at
-             WHERE user_graph_memory.user_id = excluded.user_id`
-          )
-            .bind(
-              node.id,
-              user.id,
-              node.type || 'concept',
-              node.label,
-              JSON.stringify(node.properties || {}),
-              now,
-              now
-            )
-            .run();
-          inserted++;
+             WHERE user_graph_memory.user_id = excluded.user_id`;
+
+        for (const item of rawNodes) {
+          if (!item || typeof item !== 'object' || Array.isArray(item)) continue;
+          const node = item as { id?: unknown; type?: unknown; label?: unknown; properties?: unknown };
+          const id = typeof node.id === 'string' ? node.id.trim() : '';
+          const label = typeof node.label === 'string' ? node.label.trim() : '';
+          if (!id || !label) continue;
+          const nodeType = typeof node.type === 'string' && node.type.trim() ? node.type.trim() : 'concept';
+          const props =
+            node.properties && typeof node.properties === 'object' && !Array.isArray(node.properties)
+              ? node.properties
+              : {};
+          stmts.push(
+            env.DB.prepare(upsertSql).bind(id, user.id, nodeType, label, JSON.stringify(props), now, now)
+          );
         }
 
-        return jsonResponse({ success: true, count: inserted }, 200, request);
+        if (stmts.length > 0) {
+          await env.DB.batch(stmts);
+        }
+
+        return jsonResponse({ success: true, count: stmts.length }, 200, request);
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);
         return jsonResponse({ error: 'Failed to save graph memory', details: message }, 500, request);
@@ -2902,11 +3008,16 @@ export default {
         return jsonResponse({ error: 'Unauthorized: Authentication required to publish blog posts' }, 401, request);
       }
 
+      const parsed = await readBoundedJson<Record<string, unknown>>(request, 512 * 1024);
+      if (!parsed.ok) {
+        return jsonResponse({ error: parsed.error }, parsed.status, request);
+      }
+      const body = parsed.data;
+
       try {
-        const body = (await request.json()) as Record<string, unknown>;
-        const slug = String(body.slug || '').trim();
-        const title = String(body.title || '').trim();
-        const content = String(body.content || '').trim();
+        const slug = typeof body.slug === 'string' ? body.slug.trim() : '';
+        const title = typeof body.title === 'string' ? body.title.trim() : '';
+        const content = typeof body.content === 'string' ? body.content.trim() : '';
 
         if (!slug || !title || !content) {
           return jsonResponse({ error: 'Missing required fields: slug, title, content' }, 400, request);
@@ -2976,6 +3087,7 @@ export default {
     // POST /api/seo/generate - Autonomous Edge AI Blog Article Writer (Quota & Auth Protected)
     if (url.pathname === '/api/seo/generate' && request.method === 'POST') {
       const isInternalBot = isInternalRequest(request, env, true);
+      let quotaUserId = '';
 
       if (!isInternalBot) {
         const { userId, isAuthenticated, emailVerified } = await getEffectiveUserId(request, env);
@@ -2989,8 +3101,29 @@ export default {
             request
           );
         }
+        quotaUserId = userId;
+      }
 
-        const quota = await checkAndIncrementUsage(userId, env);
+      const parsed = await readBoundedJson<Record<string, unknown>>(request, 32 * 1024);
+      if (!parsed.ok) {
+        return jsonResponse({ error: parsed.error }, parsed.status, request);
+      }
+      const body = parsed.data as {
+        topic?: unknown;
+        keyword?: unknown;
+        tone?: unknown;
+        audience?: unknown;
+      };
+
+      const topic = typeof body.topic === 'string' ? body.topic.trim() : '';
+      const keyword = typeof body.keyword === 'string' && body.keyword.trim() ? body.keyword.trim() : topic.slice(0, 30);
+
+      if (!topic) {
+        return jsonResponse({ error: 'Topic is required' }, 400, request);
+      }
+
+      if (!isInternalBot) {
+        const quota = await checkAndIncrementUsage(quotaUserId, env);
         if (!quota.allowed) {
           return jsonResponse(
             {
@@ -3004,20 +3137,6 @@ export default {
       }
 
       try {
-        const body = (await request.json()) as {
-          topic?: string;
-          keyword?: string;
-          tone?: string;
-          audience?: string;
-        };
-
-        const topic = body.topic?.trim();
-        const keyword = body.keyword?.trim() || topic?.slice(0, 30);
-
-        if (!topic) {
-          return jsonResponse({ error: 'Topic is required' }, 400, request);
-        }
-
         const systemPrompt = `You are an elite principal systems architect writing for Shadow Flow (https://shadowflow.work), an open-source visual workflow automation platform.
 Write a deep-dive, publication-ready technical engineering article.
 Follow strict human-natural writing standards:
@@ -3101,8 +3220,13 @@ Write the full article now in Markdown.`;
 
     // POST /api/seo/indexnow - Dispatch IndexNow URLs to Bing / ChatGPT Search / Perplexity
     if (url.pathname === '/api/seo/indexnow' && request.method === 'POST') {
+      const parsed = await readBoundedJson<{ urls?: unknown[] }>(request, 32 * 1024, { allowEmpty: true });
+      if (!parsed.ok) {
+        return jsonResponse({ error: parsed.error }, parsed.status, request);
+      }
+      const body = parsed.data;
+
       try {
-        const body = (await request.json().catch(() => ({}))) as { urls?: unknown[] };
         let urlList: string[];
 
         if (Array.isArray(body.urls) && body.urls.length > 0) {
@@ -3180,20 +3304,30 @@ Write the full article now in Markdown.`;
         );
       }
 
+      const parsed = await readBoundedJson<Record<string, unknown>>(request, 128 * 1024);
+      if (!parsed.ok) {
+        return jsonResponse({ error: parsed.error }, parsed.status, request);
+      }
+      const body = parsed.data;
+
+      const recipients = Array.isArray(body.to)
+        ? body.to.filter((r): r is string => typeof r === 'string' && r.trim().length > 0).map((r) => r.trim())
+        : typeof body.to === 'string' && body.to.trim().length > 0
+          ? [body.to.trim()]
+          : [];
+      const invalidRecipientInArray = Array.isArray(body.to) && recipients.length !== body.to.length;
+      if (recipients.length === 0 || recipients.length > 50 || invalidRecipientInArray) {
+        return jsonResponse({ error: 'to must be a non-empty recipient string or array of up to 50 strings' }, 400, request);
+      }
+
+      const subject = typeof body.subject === 'string' ? body.subject.trim() : '';
+      const textVal = typeof body.text === 'string' && body.text.trim().length > 0 ? body.text : undefined;
+      const htmlVal = typeof body.html === 'string' && body.html.trim().length > 0 ? body.html : undefined;
+      if (!subject || (!textVal && !htmlVal)) {
+        return jsonResponse({ error: 'Missing required fields: to, subject, and text/html' }, 400, request);
+      }
+
       try {
-        const body = (await request.json()) as {
-          to: string | string[];
-          from?: string;
-          subject: string;
-          text?: string;
-          html?: string;
-          replyTo?: string;
-        };
-
-        if (!body.to || !body.subject || (!body.text && !body.html)) {
-          return jsonResponse({ error: 'Missing required fields: to, subject, and text/html' }, 400, request);
-        }
-
         const apiKey = env.RESEND_API_KEY;
         if (!apiKey) {
           return jsonResponse({ error: 'RESEND_API_KEY secret not configured in worker environment' }, 500, request);
@@ -3209,15 +3343,21 @@ Write the full article now in Markdown.`;
           },
           body: JSON.stringify({
             from: fromAddress,
-            to: Array.isArray(body.to) ? body.to : [body.to],
-            subject: body.subject,
-            text: body.text || undefined,
-            html: body.html || undefined,
-            reply_to: body.replyTo || (user ? user.email : undefined),
+            to: recipients,
+            subject,
+            text: textVal,
+            html: htmlVal,
+            reply_to:
+              typeof body.replyTo === 'string' && body.replyTo.trim().length > 0
+                ? body.replyTo.trim()
+                : user
+                  ? user.email
+                  : undefined,
           }),
         });
 
-        const resendData = (await resendRes.json()) as Record<string, unknown>;
+        const resendText = await resendRes.text();
+        const resendData = safeJsonParse<Record<string, unknown>>(resendText, { raw: resendText.slice(0, 500) });
         if (!resendRes.ok) {
           return jsonResponse({ error: 'Resend API error', details: resendData }, resendRes.status, request);
         }
@@ -3231,14 +3371,17 @@ Write the full article now in Markdown.`;
 
     // AI Prompt-to-Flow generation endpoint using Groq + Workers AI with Plan Quotas
     if (url.pathname === '/api/generate-flow' && request.method === 'POST') {
+      const parsed = await readBoundedJson<{ prompt?: unknown }>(request, 64 * 1024);
+      if (!parsed.ok) {
+        return jsonResponse({ error: parsed.error }, parsed.status, request);
+      }
+      const prompt = typeof parsed.data.prompt === 'string' ? parsed.data.prompt.trim() : '';
+
+      if (!prompt) {
+        return jsonResponse({ error: 'Missing "prompt" parameter in request body' }, 400, request);
+      }
+
       try {
-        const body = (await request.json()) as { prompt?: string };
-        const prompt = body.prompt?.trim();
-
-        if (!prompt) {
-          return jsonResponse({ error: 'Missing "prompt" parameter in request body' }, 400, request);
-        }
-
         const { userId } = await getEffectiveUserId(request, env);
         const quota = await checkAndIncrementUsage(userId, env);
 

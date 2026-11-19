@@ -62,6 +62,9 @@ function createMockDb(options?: { failHealthCheck?: boolean }): {
   workflows: Map<string, StoredWorkflow>;
   workflowRuns: StoredWorkflowRun[];
   workflowVersions: StoredWorkflowVersion[];
+  graphMemoryNodes: Array<{ id: string; user_id: string; node_type: string; label: string; data: string }>;
+  aiUsageWriteCount: () => number;
+  batchCallCount: () => number;
   selectOneCount: () => number;
 } {
   const users = new Map<string, StoredUser>();
@@ -69,7 +72,11 @@ function createMockDb(options?: { failHealthCheck?: boolean }): {
   const workflows = new Map<string, StoredWorkflow>();
   const workflowRuns: StoredWorkflowRun[] = [];
   const workflowVersions: StoredWorkflowVersion[] = [];
+  const graphMemoryNodes: Array<{ id: string; user_id: string; node_type: string; label: string; data: string }> = [];
+  const aiUsageCounts = new Map<string, number>();
   let healthQueries = 0;
+  let aiUsageWrites = 0;
+  let batchCalls = 0;
 
   const prepare = (query: string): D1PreparedStatement => {
     let args: unknown[] = [];
@@ -129,6 +136,20 @@ function createMockDb(options?: { failHealthCheck?: boolean }): {
             .filter((v) => v.workflow_id === wfId)
             .reduce((acc, v) => Math.max(acc, v.version), 0);
           return { max_v: maxV } as T;
+        }
+        if (
+          query.startsWith(
+            "SELECT id, workflow_id, status, started_at, finished_at, error_log, logs FROM workflow_runs WHERE id = ? AND workflow_id = ?"
+          )
+        ) {
+          const [runId, wfId] = args as string[];
+          const found = workflowRuns.find((r) => r.id === runId && r.workflow_id === wfId);
+          return (found ?? null) as T | null;
+        }
+        if (query.startsWith("SELECT count FROM ai_usage WHERE user_id = ? AND request_date = ?")) {
+          const key = `${String(args[0])}:${String(args[1])}`;
+          const count = aiUsageCounts.get(key);
+          return (count !== undefined ? { count } : null) as T | null;
         }
         return null;
       },
@@ -242,6 +263,22 @@ function createMockDb(options?: { failHealthCheck?: boolean }): {
             string,
           ];
           workflowRuns.push({ id, workflow_id, status, started_at, finished_at, error_log, logs });
+        } else if (query.startsWith("INSERT INTO ai_usage")) {
+          const [, userId, requestDate] = args as string[];
+          const key = `${userId}:${requestDate}`;
+          aiUsageCounts.set(key, (aiUsageCounts.get(key) ?? 0) + 1);
+          aiUsageWrites += 1;
+        } else if (query.startsWith("INSERT INTO user_graph_memory")) {
+          const [id, user_id, node_type, label, data] = args as string[];
+          const idx = graphMemoryNodes.findIndex((n) => n.id === id);
+          const item = { id, user_id, node_type, label, data };
+          if (idx >= 0) {
+            if (graphMemoryNodes[idx].user_id === user_id) {
+              graphMemoryNodes[idx] = item;
+            }
+          } else {
+            graphMemoryNodes.push(item);
+          }
         }
         return { success: true };
       },
@@ -269,6 +306,7 @@ function createMockDb(options?: { failHealthCheck?: boolean }): {
     prepare,
     dump: async () => new ArrayBuffer(0),
     batch: async (statements) => {
+      batchCalls += 1;
       const results = [];
       for (const s of statements) {
         results.push(await s.run());
@@ -285,6 +323,9 @@ function createMockDb(options?: { failHealthCheck?: boolean }): {
     workflows,
     workflowRuns,
     workflowVersions,
+    graphMemoryNodes,
+    aiUsageWriteCount: () => aiUsageWrites,
+    batchCallCount: () => batchCalls,
     selectOneCount: () => healthQueries,
   };
 }
@@ -1186,5 +1227,334 @@ describe("Worker Backend Security & Contract Suite", () => {
     const okBody = (await okRes.json()) as { executedDag: boolean; output: { order: string; verified: boolean } };
     expect(okBody.executedDag).toBe(true);
     expect(okBody.output).toEqual({ order: "ord_99", verified: true });
+  });
+
+  it("rejects malformed, wrong-typed, and oversized payloads cleanly across auth endpoints", async () => {
+    const mock = createMockDb();
+    const env = createEnv(mock.db);
+
+    const badSignup = await worker.fetch(
+      new Request("https://shadowflow.work/api/auth/signup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{bad",
+      }),
+      env
+    );
+    expect(badSignup.status).toBe(400);
+
+    const typedSignup = await worker.fetch(
+      new Request("https://shadowflow.work/api/auth/signup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: ["arr"], password: 123 }),
+      }),
+      env
+    );
+    expect(typedSignup.status).toBe(400);
+
+    const bigLogin = await worker.fetch(
+      new Request("https://shadowflow.work/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: "a@example.com", password: "x".repeat(20 * 1024) }),
+      }),
+      env
+    );
+    expect(bigLogin.status).toBe(413);
+
+    const badLogin = await worker.fetch(
+      new Request("https://shadowflow.work/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{not-json",
+      }),
+      env
+    );
+    expect(badLogin.status).toBe(400);
+
+    const signupRes = await worker.fetch(
+      new Request("https://shadowflow.work/api/auth/signup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: "tfa-bound@example.com", password: "strong-password-123" }),
+      }),
+      env
+    );
+    const { token } = (await signupRes.json()) as { token: string };
+
+    const badTfa = await worker.fetch(
+      new Request("https://shadowflow.work/api/auth/tfa/verify-and-enable", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: "{broken",
+      }),
+      env
+    );
+    expect(badTfa.status).toBe(400);
+  });
+
+  it("supports single-run lookup GET /api/workflows/:id/runs/:runId with ownership and strict paths", async () => {
+    const mock = createMockDb();
+    const env = createEnv(mock.db);
+
+    const ownerSignup = await worker.fetch(
+      new Request("https://shadowflow.work/api/auth/signup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: "run-owner@example.com", password: "strong-password-123" }),
+      }),
+      env
+    );
+    const owner = (await ownerSignup.json()) as { user: { id: string }; token: string };
+
+    const otherSignup = await worker.fetch(
+      new Request("https://shadowflow.work/api/auth/signup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: "run-other@example.com", password: "strong-password-123" }),
+      }),
+      env
+    );
+    const other = (await otherSignup.json()) as { token: string };
+
+    mock.workflows.set("wf_single_run", {
+      id: "wf_single_run",
+      user_id: owner.user.id,
+      name: "Run Detail Test",
+      description: "",
+      nodes: "[]",
+      edges: "[]",
+      settings: "{}",
+      is_active: 1,
+      created_at: "2026-11-19T00:00:00.000Z",
+      updated_at: "2026-11-19T00:00:00.000Z",
+    });
+
+    mock.workflowRuns.push({
+      id: "run_101",
+      workflow_id: "wf_single_run",
+      status: "success",
+      started_at: "2026-11-19T01:00:00.000Z",
+      finished_at: "2026-11-19T01:00:01.000Z",
+      error_log: null,
+      logs: JSON.stringify([{ nodeId: "n1", status: "completed" }]),
+    });
+
+    const okRes = await worker.fetch(
+      new Request("https://shadowflow.work/api/workflows/wf_single_run/runs/run_101", {
+        headers: { Authorization: `Bearer ${owner.token}` },
+      }),
+      env
+    );
+    expect(okRes.status).toBe(200);
+    const okBody = (await okRes.json()) as { run: { id: string; logs: unknown[] } };
+    expect(okBody.run.id).toBe("run_101");
+    expect(okBody.run.logs).toEqual([{ nodeId: "n1", status: "completed" }]);
+
+    const missingRun = await worker.fetch(
+      new Request("https://shadowflow.work/api/workflows/wf_single_run/runs/run_missing", {
+        headers: { Authorization: `Bearer ${owner.token}` },
+      }),
+      env
+    );
+    expect(missingRun.status).toBe(404);
+
+    const otherRun = await worker.fetch(
+      new Request("https://shadowflow.work/api/workflows/wf_single_run/runs/run_101", {
+        headers: { Authorization: `Bearer ${other.token}` },
+      }),
+      env
+    );
+    expect(otherRun.status).toBe(404);
+
+    const extraVer = await worker.fetch(
+      new Request("https://shadowflow.work/api/workflows/wf_single_run/versions/extra", {
+        headers: { Authorization: `Bearer ${owner.token}` },
+      }),
+      env
+    );
+    expect(extraVer.status).toBe(404);
+
+    const extraRun = await worker.fetch(
+      new Request("https://shadowflow.work/api/workflows/wf_single_run/runs/run_101/extra", {
+        headers: { Authorization: `Bearer ${owner.token}` },
+      }),
+      env
+    );
+    expect(extraRun.status).toBe(404);
+
+    const manifestRes = await worker.fetch(new Request("https://shadowflow.work/api/backend/tools"), env);
+    const manifest = (await manifestRes.json()) as { tools: Array<{ function: { name: string } }> };
+    expect(manifest.tools.map((t) => t.function.name)).toContain("get_workflow_run");
+  });
+
+  it("rejects bad AI payloads on /api/copilot/chat and /api/generate-flow without burning daily quota", async () => {
+    const mock = createMockDb();
+    const env = createEnv(mock.db);
+
+    const badChatJson = await worker.fetch(
+      new Request("https://shadowflow.work/api/copilot/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{bad",
+      }),
+      env
+    );
+    expect(badChatJson.status).toBe(400);
+
+    const emptyChat = await worker.fetch(
+      new Request("https://shadowflow.work/api/copilot/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messages: [] }),
+      }),
+      env
+    );
+    expect(emptyChat.status).toBe(400);
+
+    const badMsgItem = await worker.fetch(
+      new Request("https://shadowflow.work/api/copilot/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messages: [{ role: "user", content: 42 }] }),
+      }),
+      env
+    );
+    expect(badMsgItem.status).toBe(400);
+
+    const bigChat = await worker.fetch(
+      new Request("https://shadowflow.work/api/copilot/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: "x".repeat(135 * 1024) }),
+      }),
+      env
+    );
+    expect(bigChat.status).toBe(413);
+
+    const badGenFlow = await worker.fetch(
+      new Request("https://shadowflow.work/api/generate-flow", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: "   " }),
+      }),
+      env
+    );
+    expect(badGenFlow.status).toBe(400);
+
+    const bigGenFlow = await worker.fetch(
+      new Request("https://shadowflow.work/api/generate-flow", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: "x".repeat(70 * 1024) }),
+      }),
+      env
+    );
+    expect(bigGenFlow.status).toBe(413);
+
+    expect(mock.aiUsageWriteCount()).toBe(0);
+  });
+
+  it("batches upserts in POST /api/copilot/memory and rejects batches over 200 nodes", async () => {
+    const mock = createMockDb();
+    const env = createEnv(mock.db);
+
+    const signupRes = await worker.fetch(
+      new Request("https://shadowflow.work/api/auth/signup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: "mem-owner@example.com", password: "strong-password-123" }),
+      }),
+      env
+    );
+    const { token } = (await signupRes.json()) as { token: string };
+
+    const badJsonMem = await worker.fetch(
+      new Request("https://shadowflow.work/api/copilot/memory", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: "{bad",
+      }),
+      env
+    );
+    expect(badJsonMem.status).toBe(400);
+
+    const tooMany = Array.from({ length: 201 }, (_, i) => ({ id: `m_${i}`, label: `Node ${i}` }));
+    const overLimit = await worker.fetch(
+      new Request("https://shadowflow.work/api/copilot/memory", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ nodes: tooMany }),
+      }),
+      env
+    );
+    expect(overLimit.status).toBe(400);
+
+    const batchesBefore = mock.batchCallCount();
+    const okMem = await worker.fetch(
+      new Request("https://shadowflow.work/api/copilot/memory", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          nodes: [
+            { id: "n_1", type: "service", label: "Stripe", properties: { region: "us" } },
+            { id: "n_2", type: "entity", label: "Customer" },
+          ],
+        }),
+      }),
+      env
+    );
+    expect(okMem.status).toBe(200);
+    const okMemBody = (await okMem.json()) as { success: boolean; count: number };
+    expect(okMemBody.count).toBe(2);
+    expect(mock.batchCallCount() - batchesBefore).toBe(1);
+    expect(mock.graphMemoryNodes).toHaveLength(2);
+  });
+
+  it("rejects malformed JSON and invalid recipient fields on POST /api/email/send", async () => {
+    const mock = createMockDb();
+    const env = createEnv(mock.db);
+
+    const signupRes = await worker.fetch(
+      new Request("https://shadowflow.work/api/auth/signup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: "email-sender@example.com", password: "strong-password-123" }),
+      }),
+      env
+    );
+    const { user, token } = (await signupRes.json()) as { user: { id: string }; token: string };
+    mock.users.get(user.id)!.email_verified = 1;
+
+    const badJson = await worker.fetch(
+      new Request("https://shadowflow.work/api/email/send", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: "{bad",
+      }),
+      env
+    );
+    expect(badJson.status).toBe(400);
+
+    const badRecipients = await worker.fetch(
+      new Request("https://shadowflow.work/api/email/send", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ to: ["ok@example.com", 42], subject: "Hi", text: "Hello" }),
+      }),
+      env
+    );
+    expect(badRecipients.status).toBe(400);
+
+    const emptySubject = await worker.fetch(
+      new Request("https://shadowflow.work/api/email/send", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ to: "ok@example.com", subject: "   ", text: "Hello" }),
+      }),
+      env
+    );
+    expect(emptySubject.status).toBe(400);
   });
 });
