@@ -69,6 +69,7 @@ function getCorsHeaders(request: Request): HeadersInit {
     'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Requested-With',
     'Access-Control-Max-Age': '86400',
+    'Vary': 'Origin',
   };
 }
 
@@ -112,16 +113,64 @@ function hexToBytes(hex: string): Uint8Array {
   return bytes;
 }
 
-function base64UrlEncode(str: string): string {
-  return btoa(str).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+function timingSafeEqual(a: string, b: string): boolean {
+  const enc = new TextEncoder();
+  const aBytes = enc.encode(a);
+  const bBytes = enc.encode(b);
+  const maxLen = Math.max(aBytes.length, bBytes.length);
+  let diff = aBytes.length ^ bBytes.length;
+  for (let i = 0; i < maxLen; i++) {
+    diff |= (aBytes[i] ?? 0) ^ (bBytes[i] ?? 0);
+  }
+  return diff === 0;
 }
 
-function base64UrlDecode(str: string): string {
+function randomId(prefix: string): string {
+  return `${prefix}_${Date.now()}_${bytesToHex(crypto.getRandomValues(new Uint8Array(6)))}`;
+}
+
+function isInternalRequest(request: Request, env: Env, allowAdminKey = false): boolean {
+  if (!env.JWT_SECRET) return false;
+  const internalSecret = request.headers.get('x-internal-secret');
+  if (internalSecret && timingSafeEqual(internalSecret, env.JWT_SECRET)) {
+    return true;
+  }
+  if (allowAdminKey) {
+    const adminKey = request.headers.get('x-admin-key');
+    if (adminKey && timingSafeEqual(adminKey, env.JWT_SECRET)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function bytesToBase64Url(bytes: Uint8Array): string {
+  let binary = '';
+  for (let i = 0; i < bytes.length; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+function base64UrlToBytes(str: string): Uint8Array<ArrayBuffer> {
   let base64 = str.replace(/-/g, '+').replace(/_/g, '/');
   while (base64.length % 4) {
     base64 += '=';
   }
-  return atob(base64);
+  const binary = atob(base64);
+  const bytes = new Uint8Array(new ArrayBuffer(binary.length));
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
+}
+
+function base64UrlEncode(str: string): string {
+  return bytesToBase64Url(new TextEncoder().encode(str));
+}
+
+function base64UrlDecode(str: string): string {
+  return new TextDecoder().decode(base64UrlToBytes(str));
 }
 
 async function hashPassword(password: string, saltHex?: string): Promise<{ hash: string; salt: string }> {
@@ -153,7 +202,9 @@ async function hashPassword(password: string, saltHex?: string): Promise<{ hash:
 async function createJWT(payload: Record<string, unknown>, secret: string): Promise<string> {
   const header = { alg: 'HS256', typ: 'JWT' };
   const encodedHeader = base64UrlEncode(JSON.stringify(header));
-  const encodedPayload = base64UrlEncode(JSON.stringify({ ...payload, exp: Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 30 }));
+  // Set the 30-day default before spreading payload so explicit short-lived claims (e.g. 2FA challenge exp) win.
+  const defaultExp = Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 30;
+  const encodedPayload = base64UrlEncode(JSON.stringify({ exp: defaultExp, ...payload }));
   const data = `${encodedHeader}.${encodedPayload}`;
 
   const enc = new TextEncoder();
@@ -165,7 +216,7 @@ async function createJWT(payload: Record<string, unknown>, secret: string): Prom
     ['sign']
   );
   const signature = await crypto.subtle.sign('HMAC', key, enc.encode(data));
-  const encodedSignature = base64UrlEncode(String.fromCharCode(...new Uint8Array(signature)));
+  const encodedSignature = bytesToBase64Url(new Uint8Array(signature));
   return `${data}.${encodedSignature}`;
 }
 
@@ -174,8 +225,10 @@ async function verifyJWT(token: string, secret: string): Promise<UserPayload | n
     const parts = token.split('.');
     if (parts.length !== 3) return null;
     const [header, payload, signature] = parts;
-    const data = `${header}.${payload}`;
+    const parsedHeader = JSON.parse(base64UrlDecode(header)) as { alg?: string };
+    if (parsedHeader.alg !== 'HS256') return null;
 
+    const data = `${header}.${payload}`;
     const enc = new TextEncoder();
     const key = await crypto.subtle.importKey(
       'raw',
@@ -184,16 +237,12 @@ async function verifyJWT(token: string, secret: string): Promise<UserPayload | n
       false,
       ['verify']
     );
-    const expectedSig = new Uint8Array(
-      base64UrlDecode(signature)
-        .split('')
-        .map((c) => c.charCodeAt(0))
-    );
+    const expectedSig = base64UrlToBytes(signature);
     const isValid = await crypto.subtle.verify('HMAC', key, expectedSig, enc.encode(data));
     if (!isValid) return null;
 
     const decoded = JSON.parse(base64UrlDecode(payload)) as UserPayload & { exp?: number };
-    if (decoded.exp && decoded.exp < Math.floor(Date.now() / 1000)) {
+    if (typeof decoded.exp !== 'number' || decoded.exp < Math.floor(Date.now() / 1000)) {
       return null;
     }
     return {
@@ -296,16 +345,18 @@ async function generateHOTP(secretBase32: string, counter: number): Promise<stri
 }
 
 async function verifyTOTP(secretBase32: string, token: string, window = 1, timeStepSeconds = 30): Promise<boolean> {
-  if (!token || token.length !== 6) return false;
+  const trimmed = token?.trim();
+  if (!trimmed || trimmed.length !== 6) return false;
   const currentCounter = Math.floor(Date.now() / 1000 / timeStepSeconds);
+  let matched = false;
 
   for (let offset = -window; offset <= window; offset++) {
     const expected = await generateHOTP(secretBase32, currentCounter + offset);
-    if (expected === token.trim()) {
-      return true;
+    if (timingSafeEqual(expected, trimmed)) {
+      matched = true;
     }
   }
-  return false;
+  return matched;
 }
 
 async function hashBackupCode(code: string): Promise<string> {
@@ -336,10 +387,15 @@ async function generateHashedBackupCodes(count = 8): Promise<{ plainCodes: strin
 
 async function verifyBackupCode(code: string, hashedCodes: string[]): Promise<{ valid: boolean; remainingHashedCodes: string[] }> {
   const normHash = await hashBackupCode(code);
-  const index = hashedCodes.indexOf(normHash);
-  if (index !== -1) {
+  let matchIndex = -1;
+  for (let i = 0; i < hashedCodes.length; i++) {
+    if (typeof hashedCodes[i] === 'string' && timingSafeEqual(hashedCodes[i], normHash)) {
+      matchIndex = i;
+    }
+  }
+  if (matchIndex !== -1) {
     const remaining = [...hashedCodes];
-    remaining.splice(index, 1);
+    remaining.splice(matchIndex, 1);
     return { valid: true, remainingHashedCodes: remaining };
   }
   return { valid: false, remainingHashedCodes: hashedCodes };
@@ -726,8 +782,12 @@ export default {
         const password = body.password?.trim();
         const displayName = body.displayName?.trim() || email?.split('@')[0] || 'User';
 
-        if (!email || !password || password.length < 8) {
+        if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || !password || password.length < 8) {
           return jsonResponse({ error: 'Valid email and password (minimum 8 characters) required' }, 400, request);
+        }
+
+        if (!env.JWT_SECRET) {
+          return jsonResponse({ error: 'Server auth configuration missing' }, 500, request);
         }
 
         const existing = await env.DB.prepare('SELECT id FROM users WHERE email = ?').bind(email).first();
@@ -748,9 +808,6 @@ export default {
           .run();
 
         const user: UserPayload = { id: userId, email, display_name: displayName };
-        if (!env.JWT_SECRET) {
-          return jsonResponse({ error: 'Server auth configuration missing' }, 500, request);
-        }
         const token = await createJWT(user as unknown as Record<string, unknown>, env.JWT_SECRET);
 
         // A failed email must not fail the signup. The user can request a new link from the dashboard.
@@ -795,7 +852,7 @@ export default {
         }
 
         const { hash } = await hashPassword(password, row.password_salt);
-        if (hash !== row.password_hash) {
+        if (!timingSafeEqual(hash, row.password_hash)) {
           return jsonResponse({ error: 'Invalid email or password' }, 401, request);
         }
 
@@ -852,7 +909,7 @@ export default {
 
           if (method === 'email' && tfaRow.email_otp) {
             const nowIso = new Date().toISOString();
-            if (tfaRow.email_otp === tfaCode.trim() && (!tfaRow.email_otp_expires_at || tfaRow.email_otp_expires_at > nowIso)) {
+            if (timingSafeEqual(tfaRow.email_otp, tfaCode.trim()) && (!tfaRow.email_otp_expires_at || tfaRow.email_otp_expires_at > nowIso)) {
               valid = true;
               await env.DB.prepare('UPDATE user_tfa SET email_otp = NULL, email_otp_expires_at = NULL WHERE user_id = ?')
                 .bind(row.id).run();
@@ -950,7 +1007,7 @@ export default {
         // Check Email OTP
         if (tfaRow.email_otp) {
           const nowIso = new Date().toISOString();
-          if (tfaRow.email_otp === code.trim() && (!tfaRow.email_otp_expires_at || tfaRow.email_otp_expires_at > nowIso)) {
+          if (timingSafeEqual(tfaRow.email_otp, code.trim()) && (!tfaRow.email_otp_expires_at || tfaRow.email_otp_expires_at > nowIso)) {
             valid = true;
             await env.DB.prepare('UPDATE user_tfa SET email_otp = NULL, email_otp_expires_at = NULL WHERE user_id = ?')
               .bind(userRow.id).run();
@@ -1144,7 +1201,7 @@ export default {
         ).bind(user.id).first()) as { email_otp?: string; email_otp_expires_at?: string } | null;
 
         const nowIso = new Date().toISOString();
-        if (!row || !row.email_otp || row.email_otp !== code || (row.email_otp_expires_at && row.email_otp_expires_at < nowIso)) {
+        if (!row || !row.email_otp || !timingSafeEqual(row.email_otp, code) || (row.email_otp_expires_at && row.email_otp_expires_at < nowIso)) {
           return jsonResponse({ valid: false, error: 'Invalid or expired email verification code. Please request a new code.' }, 400, request);
         }
 
@@ -1389,7 +1446,7 @@ export default {
           is_active?: boolean;
         };
 
-        const id = `wf_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+        const id = randomId('wf');
         const name = body.name?.trim() || 'Untitled Workflow';
         const description = body.description?.trim() || '';
         const nodesStr = JSON.stringify(body.nodes || []);
@@ -1405,7 +1462,7 @@ export default {
           .run();
 
         // Also save initial version
-        const versionId = `ver_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+        const versionId = randomId('ver');
         await env.DB.prepare(
           'INSERT INTO workflow_versions (id, workflow_id, version, nodes, edges, settings, created_by, change_summary, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
         )
@@ -1530,7 +1587,7 @@ export default {
           .bind(workflowId)
           .first()) as { max_v: number } | null;
         const nextVer = (lastVer?.max_v || 0) + 1;
-        const versionId = `ver_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+        const versionId = randomId('ver');
 
         await env.DB.prepare(
           'INSERT INTO workflow_versions (id, workflow_id, version, nodes, edges, settings, created_by, change_summary, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
@@ -1604,7 +1661,7 @@ export default {
 
       try {
         const body = (await request.json()) as { provider?: string; name?: string; data?: unknown };
-        const id = `crd_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+        const id = randomId('crd');
         const now = new Date().toISOString();
 
         await env.DB.prepare(
@@ -1659,7 +1716,7 @@ export default {
         payload = null;
       }
 
-      const executionId = `exec_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      const executionId = randomId('exec');
       const now = new Date().toISOString();
 
       try {
@@ -1949,8 +2006,7 @@ export default {
     // POST /api/blogs - Create or update a blog post (Protected: Admin or Internal Key)
     if (url.pathname === '/api/blogs' && request.method === 'POST') {
       const user = await getAuthUser(request, env);
-      const isInternalBot = (env.JWT_SECRET && request.headers.get('x-internal-secret') === env.JWT_SECRET) ||
-                            (env.JWT_SECRET && request.headers.get('x-admin-key') === env.JWT_SECRET);
+      const isInternalBot = isInternalRequest(request, env, true);
       if (!user && !isInternalBot) {
         return jsonResponse({ error: 'Unauthorized: Authentication required to publish blog posts' }, 401, request);
       }
@@ -2028,8 +2084,7 @@ export default {
 
     // POST /api/seo/generate - Autonomous Edge AI Blog Article Writer (Quota & Auth Protected)
     if (url.pathname === '/api/seo/generate' && request.method === 'POST') {
-      const isInternalBot = (env.JWT_SECRET && request.headers.get('x-internal-secret') === env.JWT_SECRET) ||
-                            (env.JWT_SECRET && request.headers.get('x-admin-key') === env.JWT_SECRET);
+      const isInternalBot = isInternalRequest(request, env, true);
 
       if (!isInternalBot) {
         const { userId, isAuthenticated, emailVerified } = await getEffectiveUserId(request, env);
@@ -2156,19 +2211,44 @@ Write the full article now in Markdown.`;
     // POST /api/seo/indexnow - Dispatch IndexNow URLs to Bing / ChatGPT Search / Perplexity
     if (url.pathname === '/api/seo/indexnow' && request.method === 'POST') {
       try {
-        const body = (await request.json().catch(() => ({}))) as { urls?: string[] };
-        const urlList = Array.isArray(body.urls) && body.urls.length > 0 ? body.urls : [
-          'https://shadowflow.work/',
-          'https://shadowflow.work/compare',
-          'https://shadowflow.work/compare/shadowflow-vs-zapier-vs-n8n',
-          'https://shadowflow.work/use-cases',
-          'https://shadowflow.work/use-cases/autonomous-social-media-agents',
-          'https://shadowflow.work/use-cases/ai-sales-and-lead-automation',
-          'https://shadowflow.work/features',
-          'https://shadowflow.work/pricing',
-          'https://shadowflow.work/blog',
-          'https://shadowflow.work/demo'
-        ];
+        const body = (await request.json().catch(() => ({}))) as { urls?: unknown[] };
+        let urlList: string[];
+
+        if (Array.isArray(body.urls) && body.urls.length > 0) {
+          if (body.urls.length > 50) {
+            return jsonResponse({ error: 'Maximum of 50 URLs allowed per IndexNow submission' }, 400, request);
+          }
+
+          const validatedUrls: string[] = [];
+          for (const rawUrl of body.urls) {
+            if (typeof rawUrl !== 'string') {
+              return jsonResponse({ error: 'All IndexNow URLs must use https://shadowflow.work' }, 400, request);
+            }
+            try {
+              const parsed = new URL(rawUrl.trim());
+              if (parsed.protocol !== 'https:' || parsed.hostname !== 'shadowflow.work') {
+                return jsonResponse({ error: 'All IndexNow URLs must use https://shadowflow.work' }, 400, request);
+              }
+              validatedUrls.push(parsed.toString());
+            } catch {
+              return jsonResponse({ error: 'All IndexNow URLs must use https://shadowflow.work' }, 400, request);
+            }
+          }
+          urlList = validatedUrls;
+        } else {
+          urlList = [
+            'https://shadowflow.work/',
+            'https://shadowflow.work/compare',
+            'https://shadowflow.work/compare/shadowflow-vs-zapier-vs-n8n',
+            'https://shadowflow.work/use-cases',
+            'https://shadowflow.work/use-cases/autonomous-social-media-agents',
+            'https://shadowflow.work/use-cases/ai-sales-and-lead-automation',
+            'https://shadowflow.work/features',
+            'https://shadowflow.work/pricing',
+            'https://shadowflow.work/blog',
+            'https://shadowflow.work/demo'
+          ];
+        }
 
         const payload = {
           host: 'shadowflow.work',
@@ -2197,7 +2277,7 @@ Write the full article now in Markdown.`;
     // POST /api/email/send - Dispatch transactional/support emails via Resend (Auth Protected)
     if (url.pathname === '/api/email/send' && request.method === 'POST') {
       const user = await getAuthUser(request, env);
-      const isInternalBot = Boolean(env.JWT_SECRET && request.headers.get('x-internal-secret') === env.JWT_SECRET);
+      const isInternalBot = isInternalRequest(request, env, false);
       if (!user && !isInternalBot) {
         return jsonResponse({ error: 'Unauthorized: Authentication required to send emails' }, 401, request);
       }
