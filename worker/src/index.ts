@@ -80,7 +80,8 @@ function jsonResponse(
   extraHeaders?: Record<string, string>
 ): Response {
   const cors = request ? getCorsHeaders(request) : { 'Access-Control-Allow-Origin': '*' };
-  return new Response(JSON.stringify(data, null, 2), {
+  const body = request?.method === 'HEAD' ? null : JSON.stringify(data, null, 2);
+  return new Response(body, {
     status,
     headers: {
       'Content-Type': 'application/json',
@@ -93,6 +94,17 @@ function jsonResponse(
       ...(extraHeaders || {}),
     },
   });
+}
+
+function safeJsonParse<T>(value: unknown, fallback: T): T {
+  if (typeof value !== 'string') {
+    return (value ?? fallback) as T;
+  }
+  try {
+    return JSON.parse(value) as T;
+  } catch {
+    return fallback;
+  }
 }
 
 // ----------------------------------------------------------------------------
@@ -1421,9 +1433,9 @@ export default {
         is_active: Boolean(row.is_active),
         created_at: String(row.created_at),
         updated_at: String(row.updated_at),
-        nodes: typeof row.nodes === 'string' ? JSON.parse(row.nodes || '[]') : row.nodes,
-        edges: typeof row.edges === 'string' ? JSON.parse(row.edges || '[]') : row.edges,
-        settings: typeof row.settings === 'string' ? JSON.parse(row.settings || '{}') : row.settings,
+        nodes: safeJsonParse(row.nodes, []),
+        edges: safeJsonParse(row.edges, []),
+        settings: safeJsonParse(row.settings, {}),
       }));
 
       return jsonResponse({ workflows }, 200, request);
@@ -1503,6 +1515,9 @@ export default {
 
       const parts = url.pathname.split('/');
       const workflowId = parts[3];
+      if (!workflowId) {
+        return jsonResponse({ error: 'Workflow not found' }, 404, request);
+      }
 
       if (parts[4] === 'versions') {
         const wf = await env.DB.prepare('SELECT id FROM workflows WHERE id = ? AND user_id = ?').bind(workflowId, user.id).first();
@@ -1519,6 +1534,37 @@ export default {
         return jsonResponse({ versions: rows.results || [] }, 200, request);
       }
 
+      if (parts[4] === 'runs') {
+        const wf = await env.DB.prepare('SELECT id FROM workflows WHERE id = ? AND user_id = ?')
+          .bind(workflowId, user.id)
+          .first();
+        if (!wf) {
+          return jsonResponse({ error: 'Workflow not found' }, 404, request);
+        }
+
+        const rawLimit = parseInt(url.searchParams.get('limit') || '25', 10);
+        const limit = Number.isFinite(rawLimit) ? Math.min(Math.max(rawLimit, 1), 100) : 25;
+        const rows = await env.DB.prepare(
+          'SELECT id, workflow_id, status, started_at, finished_at, error_log, logs FROM workflow_runs WHERE workflow_id = ? ORDER BY started_at DESC LIMIT ?'
+        )
+          .bind(workflowId, limit)
+          .all<Record<string, unknown>>();
+        const runs = (rows.results || []).map((r) => ({
+          id: String(r.id),
+          workflow_id: String(r.workflow_id),
+          status: String(r.status),
+          started_at: String(r.started_at),
+          finished_at: r.finished_at ? String(r.finished_at) : null,
+          error_log: r.error_log ? String(r.error_log) : null,
+          logs: safeJsonParse(r.logs, []),
+        }));
+        return jsonResponse({ runs, count: runs.length }, 200, request);
+      }
+
+      if (parts[4]) {
+        return jsonResponse({ error: 'Workflow subresource not found' }, 404, request);
+      }
+
       const row = (await env.DB.prepare('SELECT * FROM workflows WHERE id = ? AND user_id = ?').bind(workflowId, user.id).first()) as Record<string, unknown> | null;
       if (!row) {
         return jsonResponse({ error: 'Workflow not found' }, 404, request);
@@ -1529,9 +1575,9 @@ export default {
           workflow: {
             ...row,
             is_active: Boolean(row.is_active),
-            nodes: typeof row.nodes === 'string' ? JSON.parse(row.nodes || '[]') : row.nodes,
-            edges: typeof row.edges === 'string' ? JSON.parse(row.edges || '[]') : row.edges,
-            settings: typeof row.settings === 'string' ? JSON.parse(row.settings || '{}') : row.settings,
+            nodes: safeJsonParse(row.nodes, []),
+            edges: safeJsonParse(row.edges, []),
+            settings: safeJsonParse(row.settings, {}),
           },
         },
         200,
@@ -1645,7 +1691,7 @@ export default {
         id: String(row.id),
         provider: String(row.provider),
         name: String(row.name),
-        data: typeof row.data === 'string' ? JSON.parse(row.data || '{}') : row.data,
+        data: safeJsonParse(row.data, {}),
         created_at: String(row.created_at),
         updated_at: String(row.updated_at),
       }));
@@ -1700,20 +1746,26 @@ export default {
         return jsonResponse({ error: 'Payload Too Large: maximum webhook payload is 256KB' }, 413, request);
       }
 
-      const workflowId = url.pathname.replace('/webhook/', '').trim();
+      const workflowId = url.pathname.slice('/webhook/'.length).replace(/\/+$/, '').trim();
       if (!workflowId) {
         return jsonResponse({ error: 'Missing workflow ID in webhook path' }, 400, request);
       }
 
+      const rawBody = request.method === 'GET' || request.method === 'HEAD' ? '' : await request.text();
+      if (new TextEncoder().encode(rawBody).length > 256 * 1024) {
+        return jsonResponse({ error: 'Payload Too Large: maximum webhook payload is 256KB' }, 413, request);
+      }
+
       let payload: unknown = null;
-      try {
-        if (request.headers.get('content-type')?.includes('application/json')) {
-          payload = await request.json();
-        } else {
-          payload = await request.text();
+      const contentType = (request.headers.get('content-type') || '').toLowerCase();
+      if (contentType.includes('application/json') && rawBody.trim().length > 0) {
+        try {
+          payload = JSON.parse(rawBody);
+        } catch {
+          return jsonResponse({ error: 'Invalid JSON webhook payload' }, 400, request);
         }
-      } catch {
-        payload = null;
+      } else if (rawBody.length > 0) {
+        payload = rawBody;
       }
 
       const executionId = randomId('exec');
@@ -1932,7 +1984,7 @@ export default {
     // ------------------------------------------------------------------------
 
     // GET /api/blogs - List all published technical articles
-    if (url.pathname === '/api/blogs' && request.method === 'GET') {
+    if (url.pathname === '/api/blogs' && (request.method === 'GET' || request.method === 'HEAD')) {
       try {
         const rows = await env.DB.prepare(
           'SELECT id, slug, title, excerpt, content, category, published_at as publishedAt, updated_at as updatedAt, reading_time_minutes as readingTimeMinutes, author, author_role as authorRole, target_keyword as targetKeyword, tags, schema_json_ld as schemaJsonLd FROM blogs ORDER BY published_at DESC'
@@ -1966,7 +2018,7 @@ export default {
     }
 
     // GET /api/blogs/:slug - Get single blog post by slug
-    if (url.pathname.startsWith('/api/blogs/') && request.method === 'GET') {
+    if (url.pathname.startsWith('/api/blogs/') && (request.method === 'GET' || request.method === 'HEAD')) {
       const slug = url.pathname.slice('/api/blogs/'.length).trim();
       try {
         const row = (await env.DB.prepare(
@@ -2440,12 +2492,12 @@ Write the full article now in Markdown.`;
 
     // Safe execution step evaluator & DAG execution endpoint
     if (url.pathname === '/api/execute' || url.pathname === '/api/execute-step') {
-      if (request.method === 'GET') {
+      if (request.method === 'GET' || request.method === 'HEAD') {
         return jsonResponse(
           {
             endpoint: url.pathname,
             service: 'Shadow Flow Edge DAG and Step Execution Engine',
-            methods: ['POST', 'OPTIONS'],
+            methods: ['GET', 'HEAD', 'POST', 'OPTIONS'],
             expectedPayload: {
               workflowId: 'string (optional)',
               nodes: 'array of node definitions',
@@ -2491,10 +2543,17 @@ Write the full article now in Markdown.`;
           return jsonResponse({ error: 'Execution failed', details: message }, 400, request);
         }
       }
+
+      return jsonResponse(
+        { error: 'Method Not Allowed', allowed: ['GET', 'HEAD', 'POST', 'OPTIONS'] },
+        405,
+        request,
+        { Allow: 'GET, HEAD, POST, OPTIONS' }
+      );
     }
 
-    // If on api.* subdomain and route not matched, return 404 JSON
-    if (isApiHost) {
+    // If on api.* subdomain or /api/* route not matched, return 404 JSON rather than SPA HTML
+    if (isApiHost || url.pathname === '/api' || url.pathname.startsWith('/api/')) {
       return jsonResponse({ error: 'API Endpoint Not Found', path: url.pathname }, 404, request);
     }
 
