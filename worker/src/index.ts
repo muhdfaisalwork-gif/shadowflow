@@ -900,69 +900,107 @@ async function executeDagGraph(
             }
           }
 
-          try {
-            const controller = new AbortController();
-            const timer = setTimeout(() => controller.abort(), timeoutMs);
-            const response = await fetch(ssrfCheck.url.toString(), {
-              method,
-              headers: reqHeaders,
-              body: reqBody,
-              redirect: 'error',
-              signal: controller.signal,
-            });
-            clearTimeout(timer);
+          const retryCfg = (cfg.retry && typeof cfg.retry === 'object' ? cfg.retry : {}) as {
+            maxAttempts?: unknown;
+            backoffMs?: unknown;
+          };
+          const rawAttempts =
+            typeof retryCfg.maxAttempts === 'number'
+              ? retryCfg.maxAttempts
+              : typeof cfg.retries === 'number'
+                ? cfg.retries + 1
+                : 1;
+          const maxAttempts = Math.min(Math.max(Math.floor(rawAttempts), 1), 3);
+          const backoffMs =
+            typeof retryCfg.backoffMs === 'number' && Number.isFinite(retryCfg.backoffMs)
+              ? Math.min(Math.max(retryCfg.backoffMs, 50), 2000)
+              : 300;
 
-            let resText = '';
-            if (response.body) {
-              const reader = response.body.getReader();
-              const chunks: Uint8Array[] = [];
-              let bytesRead = 0;
-              const maxResponseBytes = 512 * 1024;
-              try {
-                while (true) {
-                  const { done, value } = await reader.read();
-                  if (done) break;
-                  if (value) {
-                    bytesRead += value.byteLength;
-                    if (bytesRead > maxResponseBytes) {
-                      await reader.cancel().catch(() => {});
-                      break;
+          let attempt = 0;
+          let lastFetchError = '';
+          let fetchSuccess = false;
+
+          while (attempt < maxAttempts && !fetchSuccess) {
+            attempt++;
+            try {
+              const controller = new AbortController();
+              const timer = setTimeout(() => controller.abort(), timeoutMs);
+              const response = await fetch(ssrfCheck.url.toString(), {
+                method,
+                headers: reqHeaders,
+                body: reqBody,
+                redirect: 'error',
+                signal: controller.signal,
+              });
+              clearTimeout(timer);
+
+              if (!response.ok && response.status >= 500 && attempt < maxAttempts) {
+                await new Promise((r) => setTimeout(r, backoffMs * attempt));
+                continue;
+              }
+
+              let resText = '';
+              if (response.body) {
+                const reader = response.body.getReader();
+                const chunks: Uint8Array[] = [];
+                let bytesRead = 0;
+                const maxResponseBytes = 512 * 1024;
+                try {
+                  while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    if (value) {
+                      bytesRead += value.byteLength;
+                      if (bytesRead > maxResponseBytes) {
+                        await reader.cancel().catch(() => {});
+                        break;
+                      }
+                      chunks.push(value);
                     }
-                    chunks.push(value);
                   }
+                } finally {
+                  reader.releaseLock();
                 }
-              } finally {
-                reader.releaseLock();
+                const merged = new Uint8Array(bytesRead);
+                let offset = 0;
+                for (const c of chunks) {
+                  merged.set(c, offset);
+                  offset += c.byteLength;
+                }
+                resText = new TextDecoder().decode(merged);
               }
-              const merged = new Uint8Array(bytesRead);
-              let offset = 0;
-              for (const c of chunks) {
-                merged.set(c, offset);
-                offset += c.byteLength;
+
+              const contentType = response.headers.get('content-type') || '';
+              const parsedData = contentType.includes('application/json')
+                ? safeJsonParse<unknown>(resText, resText)
+                : resText;
+
+              output = {
+                ok: response.ok,
+                status: response.status,
+                statusText: response.statusText,
+                headers: Object.fromEntries(response.headers.entries()),
+                data: parsedData,
+                url: ssrfCheck.url.toString(),
+                attempts: attempt,
+              };
+              fetchSuccess = true;
+            } catch (fetchErr: unknown) {
+              const message = fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
+              lastFetchError = message;
+              if (attempt < maxAttempts) {
+                await new Promise((r) => setTimeout(r, backoffMs * attempt));
               }
-              resText = new TextDecoder().decode(merged);
             }
+          }
 
-            const contentType = response.headers.get('content-type') || '';
-            const parsedData = contentType.includes('application/json')
-              ? safeJsonParse<unknown>(resText, resText)
-              : resText;
-
-            output = {
-              ok: response.ok,
-              status: response.status,
-              statusText: response.statusText,
-              headers: Object.fromEntries(response.headers.entries()),
-              data: parsedData,
-              url: ssrfCheck.url.toString(),
-            };
-          } catch (fetchErr: unknown) {
-            const message = fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
+          if (!fetchSuccess) {
             output = {
               ok: false,
-              error: `HTTP_REQUEST_FAILED: ${message}`,
+              error: `HTTP_REQUEST_FAILED: ${lastFetchError}`,
               url: ssrfCheck.url.toString(),
               status: 502,
+              attempts: attempt,
             };
           }
         }
@@ -1127,6 +1165,7 @@ const BACKEND_TOOLS_MANIFEST = {
     import_workflow: { method: 'POST', path: '/api/workflows/import', requiresAuth: true },
     duplicate_workflow: { method: 'POST', path: '/api/workflows/:id/duplicate', requiresAuth: true },
     validate_workflow: { method: 'POST', path: '/api/workflows/validate', requiresAuth: false },
+    replay_workflow_run: { method: 'POST', path: '/api/workflows/:id/runs/:runId/replay', requiresAuth: true },
     trigger_webhook: { method: 'POST', path: '/webhook/:id', requiresAuth: false },
   },
   tools: [
@@ -1333,6 +1372,22 @@ const BACKEND_TOOLS_MANIFEST = {
             edges: { type: 'array', description: 'Array of DAG edges with source and target.' },
           },
           required: ['nodes'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'replay_workflow_run',
+        description: 'Replay / re-execute a previous workflow run from history with original or overridden input.',
+        parameters: {
+          type: 'object',
+          properties: {
+            workflowId: { type: 'string', description: 'Workflow ID.' },
+            runId: { type: 'string', description: 'Previous run ID to replay.' },
+            overrideInput: { type: 'object', description: 'Optional input payload overriding the original run input.' },
+          },
+          required: ['workflowId', 'runId'],
         },
       },
     },
@@ -3143,6 +3198,99 @@ export default {
               created_at: now,
               updated_at: now,
             },
+          },
+          201,
+          request
+        );
+      }
+
+      if (
+        parts.length === 7 &&
+        parts[3].trim() &&
+        parts[4] === 'runs' &&
+        parts[5].trim() &&
+        (parts[6] === 'replay' || parts[6] === 'retry')
+      ) {
+        const user = await getAuthUser(request, env);
+        if (!user) {
+          return jsonResponse({ error: 'Unauthorized' }, 401, request);
+        }
+
+        const workflowId = parts[3].trim();
+        const runId = parts[5].trim();
+
+        const wf = (await env.DB.prepare('SELECT * FROM workflows WHERE id = ? AND user_id = ?')
+          .bind(workflowId, user.id)
+          .first()) as Record<string, unknown> | null;
+
+        if (!wf) {
+          return jsonResponse({ error: 'Workflow not found' }, 404, request);
+        }
+
+        const runRow = (await env.DB.prepare(
+          'SELECT id, workflow_id, status, started_at, finished_at, error_log, logs FROM workflow_runs WHERE id = ? AND workflow_id = ?'
+        )
+          .bind(runId, workflowId)
+          .first()) as Record<string, unknown> | null;
+
+        if (!runRow) {
+          return jsonResponse({ error: 'Run not found' }, 404, request);
+        }
+
+        let overrideInput: unknown = undefined;
+        const parsedBody = await readBoundedJson<{ overrideInput?: unknown }>(request, 64 * 1024, { allowEmpty: true });
+        if (parsedBody.ok && parsedBody.data && typeof parsedBody.data === 'object' && 'overrideInput' in parsedBody.data) {
+          overrideInput = parsedBody.data.overrideInput;
+        }
+
+        let inputToRun: unknown = overrideInput;
+        if (inputToRun === undefined) {
+          const parsedLogs = safeJsonParse<Array<{ output?: unknown }>>(runRow.logs, []);
+          inputToRun =
+            parsedLogs.length > 0 && parsedLogs[0]?.output !== undefined
+              ? parsedLogs[0].output
+              : { replayedFromRunId: runId };
+        }
+
+        const nodes = safeJsonParse<DagNodeInput[]>(wf.nodes, []);
+        const edges = safeJsonParse<DagEdgeInput[]>(wf.edges, []);
+        const startedAt = new Date().toISOString();
+        const replayedRunId = randomId('exec');
+        const dagResult = await executeDagGraph(nodes, edges, inputToRun);
+        const finishedAt = new Date().toISOString();
+
+        try {
+          await env.DB.prepare(
+            'INSERT INTO workflow_runs (id, workflow_id, status, started_at, finished_at, error_log, logs) VALUES (?, ?, ?, ?, ?, ?, ?)'
+          )
+            .bind(
+              replayedRunId,
+              workflowId,
+              dagResult.ok ? 'success' : 'failed',
+              startedAt,
+              finishedAt,
+              dagResult.ok ? null : dagResult.error,
+              JSON.stringify(
+                dagResult.ok
+                  ? dagResult.stepTraces
+                  : [{ error: dagResult.error, cycleNodes: dagResult.cycleNodes, replayedFrom: runId }]
+              )
+            )
+            .run();
+        } catch {
+          // Continue even if run logging fails
+        }
+
+        return jsonResponse(
+          {
+            success: true,
+            replayedRunId,
+            originalRunId: runId,
+            workflowId,
+            status: dagResult.ok ? 'success' : 'failed',
+            startedAt,
+            finishedAt,
+            execution: dagResult,
           },
           201,
           request

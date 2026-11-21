@@ -2364,4 +2364,157 @@ describe("Worker Backend Security & Contract Suite", () => {
     expect(manifest.endpoints).toHaveProperty("validate_workflow");
     expect(manifest.tools.map((t) => t.function.name)).toContain("validate_workflow");
   });
+
+  it("replays previous workflow runs with original or overridden inputs and supports HTTP node retry policy", async () => {
+    const mock = createMockDb();
+    const env = createEnv(mock.db);
+
+    const signupRes = await worker.fetch(
+      new Request("https://shadowflow.work/api/auth/signup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: "replayer@example.com", password: "secure-password-123" }),
+      }),
+      env
+    );
+    const { token } = (await signupRes.json()) as { token: string };
+
+    const otherSignup = await worker.fetch(
+      new Request("https://shadowflow.work/api/auth/signup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: "other-replayer@example.com", password: "secure-password-123" }),
+      }),
+      env
+    );
+    const { token: otherToken } = (await otherSignup.json()) as { token: string };
+
+    // 1. Create a workflow and execute an initial run
+    const createRes = await worker.fetch(
+      new Request("https://shadowflow.work/api/workflows", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: "Replayable Automation",
+          nodes: [
+            { id: "step_1", type: "transform", config: { fields: { echo: "hello", seq: 1 } } },
+          ],
+          edges: [],
+        }),
+      }),
+      env
+    );
+    expect(createRes.status).toBe(201);
+    const { workflow } = (await createRes.json()) as { workflow: { id: string } };
+
+    const execRes = await worker.fetch(
+      new Request(`https://shadowflow.work/api/workflows/${workflow.id}/execute`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ input: { orderId: "ord_101" } }),
+      }),
+      env
+    );
+    expect(execRes.status).toBe(200);
+    const { executionId } = (await execRes.json()) as { executionId: string };
+
+    // 2. Replay auth and ownership guards
+    const unauthReplay = await worker.fetch(
+      new Request(`https://shadowflow.work/api/workflows/${workflow.id}/runs/${executionId}/replay`, {
+        method: "POST",
+      }),
+      env
+    );
+    expect(unauthReplay.status).toBe(401);
+
+    const otherReplay = await worker.fetch(
+      new Request(`https://shadowflow.work/api/workflows/${workflow.id}/runs/${executionId}/replay`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${otherToken}` },
+      }),
+      env
+    );
+    expect(otherReplay.status).toBe(404);
+
+    const badRunReplay = await worker.fetch(
+      new Request(`https://shadowflow.work/api/workflows/${workflow.id}/runs/nonexistent_run/replay`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      }),
+      env
+    );
+    expect(badRunReplay.status).toBe(404);
+
+    // 3. Successful replay with original payload
+    const okReplay = await worker.fetch(
+      new Request(`https://shadowflow.work/api/workflows/${workflow.id}/runs/${executionId}/replay`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      }),
+      env
+    );
+    expect(okReplay.status).toBe(201);
+    const replayBody = (await okReplay.json()) as {
+      success: boolean;
+      replayedRunId: string;
+      originalRunId: string;
+      status: string;
+    };
+    expect(replayBody.success).toBe(true);
+    expect(replayBody.originalRunId).toBe(executionId);
+    expect(replayBody.replayedRunId).not.toBe(executionId);
+    expect(replayBody.status).toBe("success");
+
+    // 4. Successful replay with overridden input
+    const okOverrideReplay = await worker.fetch(
+      new Request(`https://shadowflow.work/api/workflows/${workflow.id}/runs/${executionId}/replay`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ overrideInput: { orderId: "ord_202_overridden" } }),
+      }),
+      env
+    );
+    expect(okOverrideReplay.status).toBe(201);
+    const overrideBody = (await okOverrideReplay.json()) as { success: boolean; status: string };
+    expect(overrideBody.success).toBe(true);
+    expect(overrideBody.status).toBe("success");
+
+    // 5. HTTP node retry policy test
+    const retryDagRes = await worker.fetch(
+      new Request("https://shadowflow.work/api/execute", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          nodes: [
+            {
+              id: "http_retry_step",
+              type: "http-request",
+              config: {
+                url: "https://unreachable.nonexistent-domain-404-500.com/test",
+                retry: { maxAttempts: 2, backoffMs: 50 },
+              },
+            },
+          ],
+          edges: [],
+          input: {},
+        }),
+      }),
+      env
+    );
+    expect(retryDagRes.status).toBe(200);
+    const retryBody = (await retryDagRes.json()) as {
+      output: { ok: boolean; attempts: number; error: string };
+    };
+    expect(retryBody.output.ok).toBe(false);
+    expect(retryBody.output.attempts).toBe(2);
+
+    // 6. Manifest inspection
+    const manifestRes = await worker.fetch(new Request("https://shadowflow.work/api/backend/tools"), env);
+    const manifest = (await manifestRes.json()) as {
+      endpoints: Record<string, unknown>;
+      tools: Array<{ function: { name: string } }>;
+    };
+    expect(manifest.endpoints).toHaveProperty("replay_workflow_run");
+    expect(manifest.tools.map((t) => t.function.name)).toContain("replay_workflow_run");
+  });
 });
