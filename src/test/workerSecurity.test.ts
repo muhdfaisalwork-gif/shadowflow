@@ -2210,4 +2210,158 @@ describe("Worker Backend Security & Contract Suite", () => {
     expect(manifest.endpoints).toHaveProperty("duplicate_workflow");
     expect(manifest.tools.map((t) => t.function.name)).toContain("duplicate_workflow");
   });
+
+  it("validates workflow graph topologies, cyclic edges, orphan nodes, and SSRF configurations", async () => {
+    const mock = createMockDb();
+    const env = createEnv(mock.db);
+
+    const signupRes = await worker.fetch(
+      new Request("https://shadowflow.work/api/auth/signup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: "validator@example.com", password: "secure-password-123" }),
+      }),
+      env
+    );
+    const { token } = (await signupRes.json()) as { token: string };
+
+    // 1. Valid linear topology
+    const validRes = await worker.fetch(
+      new Request("https://shadowflow.work/api/workflows/validate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          nodes: [
+            { id: "root_trigger", type: "trigger" },
+            { id: "transform_step", type: "transform" },
+            { id: "term_step", type: "condition", config: { field: "status", operator: "eq", value: "ok" } },
+          ],
+          edges: [
+            { source: "root_trigger", target: "transform_step" },
+            { source: "transform_step", target: "term_step" },
+          ],
+        }),
+      }),
+      env
+    );
+    expect(validRes.status).toBe(200);
+    const validBody = (await validRes.json()) as {
+      valid: boolean;
+      hasCycles: boolean;
+      errors: string[];
+      stats: { nodeCount: number; edgeCount: number; rootNodeIds: string[]; terminalNodeIds: string[] };
+    };
+    expect(validBody.valid).toBe(true);
+    expect(validBody.hasCycles).toBe(false);
+    expect(validBody.errors).toEqual([]);
+    expect(validBody.stats.nodeCount).toBe(3);
+    expect(validBody.stats.rootNodeIds).toEqual(["root_trigger"]);
+    expect(validBody.stats.terminalNodeIds).toEqual(["term_step"]);
+
+    // 2. Cyclic graph detection
+    const cycleRes = await worker.fetch(
+      new Request("https://shadowflow.work/api/workflows/validate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          nodes: [
+            { id: "loop_a", type: "transform" },
+            { id: "loop_b", type: "transform" },
+          ],
+          edges: [
+            { source: "loop_a", target: "loop_b" },
+            { source: "loop_b", target: "loop_a" },
+          ],
+        }),
+      }),
+      env
+    );
+    expect(cycleRes.status).toBe(200);
+    const cycleBody = (await cycleRes.json()) as { valid: boolean; hasCycles: boolean; cycleNodes: string[] };
+    expect(cycleBody.valid).toBe(false);
+    expect(cycleBody.hasCycles).toBe(true);
+    expect(cycleBody.cycleNodes).toContain("loop_a");
+    expect(cycleBody.cycleNodes).toContain("loop_b");
+
+    // 3. Dangling edges and orphan nodes
+    const danglingRes = await worker.fetch(
+      new Request("https://shadowflow.work/api/workflows/validate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          nodes: [
+            { id: "node_1", type: "trigger" },
+            { id: "orphan_node", type: "manual" },
+          ],
+          edges: [{ source: "node_1", target: "non_existent_node" }],
+        }),
+      }),
+      env
+    );
+    expect(danglingRes.status).toBe(200);
+    const danglingBody = (await danglingRes.json()) as {
+      valid: boolean;
+      errors: string[];
+      warnings: string[];
+      orphanNodes: string[];
+      danglingEdges: Array<{ target: string }>;
+    };
+    expect(danglingBody.valid).toBe(false);
+    expect(danglingBody.orphanNodes).toContain("orphan_node");
+    expect(danglingBody.danglingEdges[0].target).toBe("non_existent_node");
+
+    // 4. SSRF detection during validation
+    const ssrfValidationRes = await worker.fetch(
+      new Request("https://shadowflow.work/api/workflows/validate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          nodes: [
+            { id: "bad_http", type: "http-request", config: { url: "http://127.0.0.1:8080/admin" } },
+          ],
+          edges: [],
+        }),
+      }),
+      env
+    );
+    expect(ssrfValidationRes.status).toBe(200);
+    const ssrfValidationBody = (await ssrfValidationRes.json()) as { valid: boolean; errors: string[] };
+    expect(ssrfValidationBody.valid).toBe(false);
+    expect(ssrfValidationBody.errors.some((e) => e.includes("SSRF guard"))).toBe(true);
+
+    // 5. GET /api/workflows/:id/validate on saved workflow
+    const saveRes = await worker.fetch(
+      new Request("https://shadowflow.work/api/workflows", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: "Saved Valid Flow",
+          nodes: [{ id: "n1", type: "trigger" }, { id: "n2", type: "merge" }],
+          edges: [{ source: "n1", target: "n2" }],
+        }),
+      }),
+      env
+    );
+    const { workflow: savedWf } = (await saveRes.json()) as { workflow: { id: string } };
+
+    const getValidateRes = await worker.fetch(
+      new Request(`https://shadowflow.work/api/workflows/${savedWf.id}/validate`, {
+        headers: { Authorization: `Bearer ${token}` },
+      }),
+      env
+    );
+    expect(getValidateRes.status).toBe(200);
+    const getValidateBody = (await getValidateRes.json()) as { valid: boolean; workflowId: string };
+    expect(getValidateBody.valid).toBe(true);
+    expect(getValidateBody.workflowId).toBe(savedWf.id);
+
+    // 6. Manifest inspection
+    const manifestRes = await worker.fetch(new Request("https://shadowflow.work/api/backend/tools"), env);
+    const manifest = (await manifestRes.json()) as {
+      endpoints: Record<string, unknown>;
+      tools: Array<{ function: { name: string } }>;
+    };
+    expect(manifest.endpoints).toHaveProperty("validate_workflow");
+    expect(manifest.tools.map((t) => t.function.name)).toContain("validate_workflow");
+  });
 });

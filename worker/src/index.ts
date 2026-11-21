@@ -412,6 +412,198 @@ function isSsrfSafeUrl(rawUrl: string): { safe: boolean; error?: string; url?: U
   return { safe: true, url: parsed };
 }
 
+interface WorkflowValidationReport {
+  valid: boolean;
+  hasCycles: boolean;
+  cycleNodes: string[];
+  orphanNodes: string[];
+  danglingEdges: Array<{ source: string; target: string; reason: string }>;
+  errors: string[];
+  warnings: string[];
+  stats: {
+    nodeCount: number;
+    edgeCount: number;
+    rootNodeIds: string[];
+    terminalNodeIds: string[];
+    nodeTypes: Record<string, number>;
+  };
+}
+
+function analyzeWorkflowGraph(
+  nodes: DagNodeInput[],
+  edges: DagEdgeInput[]
+): WorkflowValidationReport {
+  const errors: string[] = [];
+  const warnings: string[] = [];
+  const nodeMap = new Map<string, DagNodeInput>();
+  const nodeTypes: Record<string, number> = {};
+
+  if (!Array.isArray(nodes)) {
+    return {
+      valid: false,
+      hasCycles: false,
+      cycleNodes: [],
+      orphanNodes: [],
+      danglingEdges: [],
+      errors: ['nodes must be an array'],
+      warnings: [],
+      stats: { nodeCount: 0, edgeCount: 0, rootNodeIds: [], terminalNodeIds: [], nodeTypes: {} },
+    };
+  }
+
+  if (nodes.length > 100) {
+    errors.push('Exceeds maximum limit of 100 nodes per workflow');
+  }
+
+  for (const node of nodes) {
+    if (!node || typeof node !== 'object') {
+      errors.push('Encountered non-object entry in nodes array');
+      continue;
+    }
+    const id = typeof node.id === 'string' ? node.id.trim() : '';
+    if (!id) {
+      errors.push('Each node must have a non-empty string id');
+      continue;
+    }
+    if (nodeMap.has(id)) {
+      errors.push(`Duplicate node id: "${id}"`);
+    } else {
+      nodeMap.set(id, node);
+    }
+
+    const type = String(node.data?.flowType || node.data?.type || node.type || 'action').toLowerCase();
+    nodeTypes[type] = (nodeTypes[type] || 0) + 1;
+
+    const cfg = (node.data?.config || node.config || node.parameters || {}) as Record<string, unknown>;
+
+    if (type === 'http-request' || type === 'http' || type === 'webhook-callout' || type === 'api-call') {
+      if (!cfg.url || typeof cfg.url !== 'string') {
+        errors.push(`Node "${id}" (${type}) requires a non-empty string "url" configuration`);
+      } else if (!cfg.url.includes('{{')) {
+        const ssrf = isSsrfSafeUrl(cfg.url);
+        if (!ssrf.safe) {
+          errors.push(`Node "${id}" (${type}) URL is rejected by SSRF guard: ${ssrf.error}`);
+        }
+      }
+    } else if (type === 'condition' || type === 'if-else' || type === 'filter') {
+      if (!cfg.operator && !cfg.field) {
+        warnings.push(`Node "${id}" (${type}) has neither "field" nor "operator" configured; defaults to truthy check`);
+      }
+    } else if (type === 'switch' || type === 'router') {
+      if (!cfg.cases || typeof cfg.cases !== 'object') {
+        warnings.push(`Node "${id}" (${type}) has no "cases" definition configured`);
+      }
+    } else if (type === 'pick' || type === 'select') {
+      if (!Array.isArray(cfg.keys) || cfg.keys.length === 0) {
+        warnings.push(`Node "${id}" (${type}) has no "keys" array configured to select`);
+      }
+    }
+  }
+
+  const danglingEdges: Array<{ source: string; target: string; reason: string }> = [];
+  const inDegree = new Map<string, number>();
+  const outDegree = new Map<string, number>();
+  const outgoing = new Map<string, DagEdgeInput[]>();
+
+  for (const id of nodeMap.keys()) {
+    inDegree.set(id, 0);
+    outDegree.set(id, 0);
+    outgoing.set(id, []);
+  }
+
+  const safeEdges = Array.isArray(edges) ? edges : [];
+  if (safeEdges.length > 500) {
+    errors.push('Exceeds maximum limit of 500 edges per workflow');
+  }
+
+  for (const edge of safeEdges) {
+    if (!edge || typeof edge !== 'object') continue;
+    const src = typeof edge.source === 'string' ? edge.source.trim() : '';
+    const tgt = typeof edge.target === 'string' ? edge.target.trim() : '';
+
+    if (!src || !tgt) {
+      danglingEdges.push({ source: src, target: tgt, reason: 'Edge is missing source or target id' });
+      errors.push(`Malformed edge: missing source or target`);
+      continue;
+    }
+
+    if (!nodeMap.has(src)) {
+      danglingEdges.push({ source: src, target: tgt, reason: `Source node "${src}" does not exist` });
+      errors.push(`Dangling edge: source node "${src}" does not exist`);
+      continue;
+    }
+    if (!nodeMap.has(tgt)) {
+      danglingEdges.push({ source: src, target: tgt, reason: `Target node "${tgt}" does not exist` });
+      errors.push(`Dangling edge: target node "${tgt}" does not exist`);
+      continue;
+    }
+
+    outgoing.get(src)!.push(edge);
+    inDegree.set(tgt, (inDegree.get(tgt) ?? 0) + 1);
+    outDegree.set(src, (outDegree.get(src) ?? 0) + 1);
+  }
+
+  const queue: string[] = [];
+  const rootNodeIds: string[] = [];
+  const terminalNodeIds: string[] = [];
+  const orphanNodes: string[] = [];
+
+  for (const [id, deg] of inDegree.entries()) {
+    if (deg === 0) {
+      queue.push(id);
+      rootNodeIds.push(id);
+    }
+    const outDeg = outDegree.get(id) ?? 0;
+    if (outDeg === 0) {
+      terminalNodeIds.push(id);
+    }
+    if (deg === 0 && outDeg === 0 && nodeMap.size > 1) {
+      orphanNodes.push(id);
+      warnings.push(`Node "${id}" is disconnected from the workflow graph (orphan node)`);
+    }
+  }
+
+  const sortedOrder: string[] = [];
+  const tempInDegree = new Map(inDegree);
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+    sortedOrder.push(current);
+    for (const edge of outgoing.get(current) || []) {
+      const nextDeg = (tempInDegree.get(edge.target) ?? 0) - 1;
+      tempInDegree.set(edge.target, nextDeg);
+      if (nextDeg === 0) {
+        queue.push(edge.target);
+      }
+    }
+  }
+
+  let hasCycles = false;
+  let cycleNodes: string[] = [];
+  if (sortedOrder.length !== nodeMap.size) {
+    hasCycles = true;
+    const visited = new Set(sortedOrder);
+    cycleNodes = Array.from(nodeMap.keys()).filter((id) => !visited.has(id));
+    errors.push(`Workflow graph contains a cycle involving nodes: ${cycleNodes.join(', ')}`);
+  }
+
+  return {
+    valid: errors.length === 0,
+    hasCycles,
+    cycleNodes,
+    orphanNodes,
+    danglingEdges,
+    errors,
+    warnings,
+    stats: {
+      nodeCount: nodeMap.size,
+      edgeCount: safeEdges.length,
+      rootNodeIds,
+      terminalNodeIds,
+      nodeTypes,
+    },
+  };
+}
+
 async function executeDagGraph(
   nodes: DagNodeInput[],
   edges: DagEdgeInput[],
@@ -934,6 +1126,7 @@ const BACKEND_TOOLS_MANIFEST = {
     export_workflow: { method: 'GET', path: '/api/workflows/:id/export', requiresAuth: true },
     import_workflow: { method: 'POST', path: '/api/workflows/import', requiresAuth: true },
     duplicate_workflow: { method: 'POST', path: '/api/workflows/:id/duplicate', requiresAuth: true },
+    validate_workflow: { method: 'POST', path: '/api/workflows/validate', requiresAuth: false },
     trigger_webhook: { method: 'POST', path: '/webhook/:id', requiresAuth: false },
   },
   tools: [
@@ -1125,6 +1318,21 @@ const BACKEND_TOOLS_MANIFEST = {
             name: { type: 'string', description: 'Optional custom name for the duplicated workflow.' },
           },
           required: ['workflowId'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'validate_workflow',
+        description: 'Validate workflow graph topology and node configurations for cycles, orphan nodes, and SSRF before execution or persistence.',
+        parameters: {
+          type: 'object',
+          properties: {
+            nodes: { type: 'array', description: 'Array of DAG nodes with id, type, and config.' },
+            edges: { type: 'array', description: 'Array of DAG edges with source and target.' },
+          },
+          required: ['nodes'],
         },
       },
     },
@@ -2525,6 +2733,26 @@ export default {
       return jsonResponse({ workflows }, 200, request);
     }
 
+    // POST /api/workflows/validate - lint & validate workflow topology and node configurations
+    if (url.pathname === '/api/workflows/validate' && request.method === 'POST') {
+      const parsed = await readBoundedJson<Record<string, unknown>>(request, 512 * 1024, { allowEmpty: true });
+      if (!parsed.ok) {
+        return jsonResponse({ error: parsed.error }, parsed.status, request);
+      }
+      const rawBody = parsed.data;
+      const target = (
+        rawBody.workflow && typeof rawBody.workflow === 'object' && !Array.isArray(rawBody.workflow)
+          ? rawBody.workflow
+          : rawBody
+      ) as Record<string, unknown>;
+
+      const nodes = Array.isArray(target.nodes) ? (target.nodes as DagNodeInput[]) : [];
+      const edges = Array.isArray(target.edges) ? (target.edges as DagEdgeInput[]) : [];
+      const report = analyzeWorkflowGraph(nodes, edges);
+
+      return jsonResponse({ success: true, ...report }, 200, request);
+    }
+
     // POST /api/workflows/import - import portable workflow snapshot
     if (url.pathname === '/api/workflows/import' && request.method === 'POST') {
       const user = await getAuthUser(request, env);
@@ -2792,6 +3020,31 @@ export default {
         return jsonResponse(exportPayload, 200, request, {
           'Content-Disposition': `attachment; filename="workflow-${workflowId}.json"`,
         });
+      }
+
+      if (parts[4] === 'validate') {
+        if (parts.length > 5) {
+          return jsonResponse({ error: 'Workflow subresource not found' }, 404, request);
+        }
+        const row = (await env.DB.prepare('SELECT * FROM workflows WHERE id = ? AND user_id = ?')
+          .bind(workflowId, user.id)
+          .first()) as Record<string, unknown> | null;
+        if (!row) {
+          return jsonResponse({ error: 'Workflow not found' }, 404, request);
+        }
+        const nodes = safeJsonParse<DagNodeInput[]>(row.nodes, []);
+        const edges = safeJsonParse<DagEdgeInput[]>(row.edges, []);
+        const report = analyzeWorkflowGraph(nodes, edges);
+        return jsonResponse(
+          {
+            success: true,
+            workflowId,
+            workflowName: String(row.name),
+            ...report,
+          },
+          200,
+          request
+        );
       }
 
       if (parts[4]) {
