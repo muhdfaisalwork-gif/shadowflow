@@ -332,11 +332,91 @@ function evaluateCondition(
   return Boolean(actual);
 }
 
-function executeDagGraph(
+function isSsrfSafeUrl(rawUrl: string): { safe: boolean; error?: string; url?: URL } {
+  let parsed: URL;
+  try {
+    parsed = new URL(rawUrl);
+  } catch {
+    return { safe: false, error: 'Invalid URL format' };
+  }
+
+  const protocol = parsed.protocol.toLowerCase();
+  if (protocol !== 'http:' && protocol !== 'https:') {
+    return { safe: false, error: `Protocol "${protocol}" not allowed (only HTTP and HTTPS supported)` };
+  }
+
+  const hostname = parsed.hostname.toLowerCase().trim();
+  if (!hostname) {
+    return { safe: false, error: 'Hostname cannot be empty' };
+  }
+
+  if (parsed.username || parsed.password) {
+    return { safe: false, error: 'Embedded credentials in URL are forbidden' };
+  }
+
+  if (
+    hostname === 'localhost' ||
+    hostname.endsWith('.localhost') ||
+    hostname === '[::1]' ||
+    hostname === '::1' ||
+    hostname === 'metadata.google.internal' ||
+    hostname === 'instance-data' ||
+    hostname.endsWith('.internal') ||
+    hostname.endsWith('.local') ||
+    hostname.endsWith('.localdomain') ||
+    hostname.endsWith('.corp') ||
+    hostname.endsWith('.lan') ||
+    hostname.endsWith('.home')
+  ) {
+    return { safe: false, error: 'Local and internal hostnames are forbidden' };
+  }
+
+  const ipv4Match = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(hostname);
+  if (ipv4Match) {
+    const o0 = parseInt(ipv4Match[1], 10);
+    const o1 = parseInt(ipv4Match[2], 10);
+    const o2 = parseInt(ipv4Match[3], 10);
+    const o3 = parseInt(ipv4Match[4], 10);
+
+    if (o0 > 255 || o1 > 255 || o2 > 255 || o3 > 255) {
+      return { safe: false, error: 'Invalid IPv4 octet value' };
+    }
+
+    if (o0 === 0) return { safe: false, error: 'Target 0.0.0.0/8 is forbidden' };
+    if (o0 === 127) return { safe: false, error: 'Loopback 127.0.0.0/8 is forbidden' };
+    if (o0 === 10) return { safe: false, error: 'Private address 10.0.0.0/8 is forbidden' };
+    if (o0 === 172 && o1 >= 16 && o1 <= 31) return { safe: false, error: 'Private address 172.16.0.0/12 is forbidden' };
+    if (o0 === 192 && o1 === 168) return { safe: false, error: 'Private address 192.168.0.0/16 is forbidden' };
+    if (o0 === 169 && o1 === 254) return { safe: false, error: 'Cloud metadata 169.254.0.0/16 is forbidden' };
+    if (o0 === 100 && o1 >= 64 && o1 <= 127) return { safe: false, error: 'Shared address space 100.64.0.0/10 is forbidden' };
+    if (o0 >= 224) return { safe: false, error: 'Multicast and reserved addresses are forbidden' };
+  }
+
+  if (hostname.startsWith('[') && hostname.endsWith(']')) {
+    const raw6 = hostname.slice(1, -1).toLowerCase();
+    if (
+      raw6 === '::1' ||
+      raw6 === '::' ||
+      raw6.startsWith('fe80:') ||
+      raw6.startsWith('fc00:') ||
+      raw6.startsWith('fd00:') ||
+      raw6.startsWith('::ffff:127.') ||
+      raw6.startsWith('::ffff:10.') ||
+      raw6.startsWith('::ffff:192.168.') ||
+      raw6.startsWith('::ffff:169.254.')
+    ) {
+      return { safe: false, error: 'Private and loopback IPv6 targets are forbidden' };
+    }
+  }
+
+  return { safe: true, url: parsed };
+}
+
+async function executeDagGraph(
   nodes: DagNodeInput[],
   edges: DagEdgeInput[],
   initialInput: unknown
-): DagExecResult {
+): Promise<DagExecResult> {
   if (nodes.length > 100) {
     return { ok: false, status: 400, error: 'DAG limit exceeded: maximum 100 nodes allowed per execution' };
   }
@@ -549,6 +629,140 @@ function executeDagGraph(
       }
     } else if (nodeType === 'merge') {
       output = { merged: parentOutputs };
+    } else if (
+      nodeType === 'http-request' ||
+      nodeType === 'http' ||
+      nodeType === 'webhook-callout' ||
+      nodeType === 'api-call' ||
+      nodeType === 'fetch'
+    ) {
+      const rawUrl = typeof cfg.url === 'string' ? interpolateTemplate(cfg.url, currentInput).trim() : '';
+      if (!rawUrl) {
+        output = { ok: false, error: 'HTTP Request node requires a non-empty "url" config string', status: 400 };
+      } else {
+        const ssrfCheck = isSsrfSafeUrl(rawUrl);
+        if (!ssrfCheck.safe || !ssrfCheck.url) {
+          output = {
+            ok: false,
+            error: `SSRF_BLOCKED: ${ssrfCheck.error || 'Target URL is not permitted'}`,
+            url: rawUrl,
+            blocked: true,
+            status: 403,
+          };
+        } else {
+          const rawMethod = typeof cfg.method === 'string' ? cfg.method.trim().toUpperCase() : 'GET';
+          const validMethods = new Set(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD']);
+          const method = validMethods.has(rawMethod) ? rawMethod : 'GET';
+          const timeoutMs =
+            typeof cfg.timeoutMs === 'number' && Number.isFinite(cfg.timeoutMs)
+              ? Math.min(Math.max(cfg.timeoutMs, 500), 15000)
+              : 8000;
+
+          const reqHeaders: Record<string, string> = {
+            'User-Agent': 'ShadowFlow-Automations/1.0',
+            'Accept': 'application/json, text/plain, */*',
+          };
+
+          if (cfg.headers && typeof cfg.headers === 'object' && !Array.isArray(cfg.headers)) {
+            for (const [hk, hv] of Object.entries(cfg.headers as Record<string, unknown>)) {
+              if (UNSAFE_OBJECT_KEYS.has(hk)) continue;
+              if (typeof hv === 'string') {
+                reqHeaders[hk] = interpolateTemplate(hv, currentInput);
+              } else if (hv !== null && hv !== undefined) {
+                reqHeaders[hk] = String(hv);
+              }
+            }
+          }
+
+          let reqBody: string | undefined = undefined;
+          if (method !== 'GET' && method !== 'HEAD') {
+            if (typeof cfg.body === 'string') {
+              reqBody = interpolateTemplate(cfg.body, currentInput);
+            } else if (cfg.body !== undefined && cfg.body !== null) {
+              reqBody = JSON.stringify(cfg.body);
+              if (!Object.keys(reqHeaders).some((k) => k.toLowerCase() === 'content-type')) {
+                reqHeaders['Content-Type'] = 'application/json';
+              }
+            } else if (
+              currentInput !== undefined &&
+              currentInput !== null &&
+              typeof currentInput === 'object' &&
+              Object.keys(currentInput).length > 0
+            ) {
+              reqBody = JSON.stringify(currentInput);
+              if (!Object.keys(reqHeaders).some((k) => k.toLowerCase() === 'content-type')) {
+                reqHeaders['Content-Type'] = 'application/json';
+              }
+            }
+          }
+
+          try {
+            const controller = new AbortController();
+            const timer = setTimeout(() => controller.abort(), timeoutMs);
+            const response = await fetch(ssrfCheck.url.toString(), {
+              method,
+              headers: reqHeaders,
+              body: reqBody,
+              redirect: 'error',
+              signal: controller.signal,
+            });
+            clearTimeout(timer);
+
+            let resText = '';
+            if (response.body) {
+              const reader = response.body.getReader();
+              const chunks: Uint8Array[] = [];
+              let bytesRead = 0;
+              const maxResponseBytes = 512 * 1024;
+              try {
+                while (true) {
+                  const { done, value } = await reader.read();
+                  if (done) break;
+                  if (value) {
+                    bytesRead += value.byteLength;
+                    if (bytesRead > maxResponseBytes) {
+                      await reader.cancel().catch(() => {});
+                      break;
+                    }
+                    chunks.push(value);
+                  }
+                }
+              } finally {
+                reader.releaseLock();
+              }
+              const merged = new Uint8Array(bytesRead);
+              let offset = 0;
+              for (const c of chunks) {
+                merged.set(c, offset);
+                offset += c.byteLength;
+              }
+              resText = new TextDecoder().decode(merged);
+            }
+
+            const contentType = response.headers.get('content-type') || '';
+            const parsedData = contentType.includes('application/json')
+              ? safeJsonParse<unknown>(resText, resText)
+              : resText;
+
+            output = {
+              ok: response.ok,
+              status: response.status,
+              statusText: response.statusText,
+              headers: Object.fromEntries(response.headers.entries()),
+              data: parsedData,
+              url: ssrfCheck.url.toString(),
+            };
+          } catch (fetchErr: unknown) {
+            const message = fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
+            output = {
+              ok: false,
+              error: `HTTP_REQUEST_FAILED: ${message}`,
+              url: ssrfCheck.url.toString(),
+              status: 502,
+            };
+          }
+        }
+      }
     } else {
       output = { nodeType, label, status: 'executed', input: currentInput };
     }
@@ -610,6 +824,8 @@ const BACKEND_TOOLS_MANIFEST = {
     get_workflow_runs: { method: 'GET', path: '/api/workflows/:id/runs', requiresAuth: true },
     get_workflow_run: { method: 'GET', path: '/api/workflows/:id/runs/:runId', requiresAuth: true },
     restore_workflow_version: { method: 'POST', path: '/api/workflows/:id/versions/:versionId/restore', requiresAuth: true },
+    export_workflow: { method: 'GET', path: '/api/workflows/:id/export', requiresAuth: true },
+    import_workflow: { method: 'POST', path: '/api/workflows/import', requiresAuth: true },
     trigger_webhook: { method: 'POST', path: '/webhook/:id', requiresAuth: false },
   },
   tools: [
@@ -755,6 +971,37 @@ const BACKEND_TOOLS_MANIFEST = {
             workflowId: { type: 'string' },
           },
           required: ['workflowId'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'export_workflow',
+        description: 'Export a saved workflow from D1 as a portable JSON snapshot with metadata, nodes, edges, and settings.',
+        parameters: {
+          type: 'object',
+          properties: {
+            workflowId: { type: 'string', description: 'Unique workflow ID to export.' },
+          },
+          required: ['workflowId'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'import_workflow',
+        description: 'Import a portable workflow JSON snapshot into D1, generating a new workflow ID and initial version record.',
+        parameters: {
+          type: 'object',
+          properties: {
+            workflow: {
+              type: 'object',
+              description: 'Workflow object containing name, nodes, edges, description, and settings.',
+            },
+          },
+          required: ['workflow'],
         },
       },
     },
@@ -2155,6 +2402,96 @@ export default {
       return jsonResponse({ workflows }, 200, request);
     }
 
+    // POST /api/workflows/import - import portable workflow snapshot
+    if (url.pathname === '/api/workflows/import' && request.method === 'POST') {
+      const user = await getAuthUser(request, env);
+      if (!user) {
+        return jsonResponse({ error: 'Unauthorized' }, 401, request);
+      }
+
+      const parsed = await readBoundedJson<Record<string, unknown>>(request, 512 * 1024);
+      if (!parsed.ok) {
+        return jsonResponse({ error: parsed.error }, parsed.status, request);
+      }
+      const rawBody = parsed.data;
+      const wfCandidate = (
+        rawBody.workflow && typeof rawBody.workflow === 'object' && !Array.isArray(rawBody.workflow)
+          ? rawBody.workflow
+          : rawBody
+      ) as Record<string, unknown>;
+
+      const validationErr = validateWorkflowPayload(wfCandidate);
+      if (validationErr) {
+        return jsonResponse({ error: `Invalid workflow import format: ${validationErr}` }, 400, request);
+      }
+      if (!Array.isArray(wfCandidate.nodes) || !Array.isArray(wfCandidate.edges)) {
+        return jsonResponse({ error: 'Invalid workflow import format: nodes and edges arrays are required' }, 400, request);
+      }
+
+      try {
+        const id = randomId('wf');
+        const name = (typeof wfCandidate.name === 'string' ? wfCandidate.name.trim() : '') || 'Imported Workflow';
+        const description = typeof wfCandidate.description === 'string' ? wfCandidate.description.trim() : '';
+        const nodesVal = wfCandidate.nodes || [];
+        const edgesVal = wfCandidate.edges || [];
+        const settingsVal = wfCandidate.settings || {};
+        const variablesVal = wfCandidate.variables || {};
+        const nodesStr = JSON.stringify(nodesVal);
+        const edgesStr = JSON.stringify(edgesVal);
+        const settingsStr = JSON.stringify(settingsVal);
+        const isActive = wfCandidate.is_active === true ? 1 : 0;
+        const now = new Date().toISOString();
+        const versionId = randomId('ver');
+        const auditId = randomId('aud');
+
+        await env.DB.batch([
+          env.DB.prepare(
+            'INSERT INTO workflows (id, user_id, name, description, nodes, edges, settings, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+          ).bind(id, user.id, name, description, nodesStr, edgesStr, settingsStr, isActive, now, now),
+          env.DB.prepare(
+            'INSERT INTO workflow_versions (id, workflow_id, version, nodes, edges, settings, created_by, change_summary, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+          ).bind(versionId, id, 1, nodesStr, edgesStr, settingsStr, user.id, 'Imported from JSON', now),
+          env.DB.prepare(
+            'INSERT INTO audit_logs (id, user_id, action, resource_type, resource_id, details, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+          ).bind(
+            auditId,
+            user.id,
+            'workflow.import',
+            'workflow',
+            id,
+            JSON.stringify({ name, nodeCount: Array.isArray(nodesVal) ? nodesVal.length : 0 }),
+            now
+          ),
+        ]);
+
+        return jsonResponse(
+          {
+            success: true,
+            message: 'Workflow imported successfully',
+            workflow: {
+              id,
+              user_id: user.id,
+              name,
+              description,
+              nodes: nodesVal,
+              edges: edgesVal,
+              settings: settingsVal,
+              variables: variablesVal,
+              is_active: Boolean(isActive),
+              version: 1,
+              created_at: now,
+              updated_at: now,
+            },
+          },
+          201,
+          request
+        );
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        return jsonResponse({ error: 'Failed to import workflow', details: message }, 500, request);
+      }
+    }
+
     // POST /api/workflows - create new workflow
     if (url.pathname === '/api/workflows' && request.method === 'POST') {
       const user = await getAuthUser(request, env);
@@ -2296,6 +2633,42 @@ export default {
           .all<Record<string, unknown>>();
         const runs = (rows.results || []).map(formatWorkflowRunRow);
         return jsonResponse({ runs, count: runs.length }, 200, request);
+      }
+
+      if (parts[4] === 'export') {
+        if (parts.length > 5) {
+          return jsonResponse({ error: 'Workflow subresource not found' }, 404, request);
+        }
+        const row = (await env.DB.prepare('SELECT * FROM workflows WHERE id = ? AND user_id = ?')
+          .bind(workflowId, user.id)
+          .first()) as Record<string, unknown> | null;
+        if (!row) {
+          return jsonResponse({ error: 'Workflow not found' }, 404, request);
+        }
+
+        const exportPayload = {
+          format: 'shadowflow-workflow',
+          schemaVersion: 1,
+          exportedAt: new Date().toISOString(),
+          generator: 'ShadowFlow/1.0.2',
+          workflow: {
+            id: row.id,
+            name: row.name,
+            description: row.description || '',
+            nodes: safeJsonParse(row.nodes, []),
+            edges: safeJsonParse(row.edges, []),
+            variables: safeJsonParse(row.variables, {}),
+            settings: safeJsonParse(row.settings, {}),
+            version: row.version ?? 1,
+            is_active: Boolean(row.is_active),
+            created_at: row.created_at,
+            updated_at: row.updated_at,
+          },
+        };
+
+        return jsonResponse(exportPayload, 200, request, {
+          'Content-Disposition': `attachment; filename="workflow-${workflowId}.json"`,
+        });
       }
 
       if (parts[4]) {
@@ -2441,7 +2814,7 @@ export default {
       const edges = safeJsonParse<DagEdgeInput[]>(wf.edges, []);
       const startedAt = new Date().toISOString();
       const executionId = randomId('exec');
-      const dagResult = executeDagGraph(nodes, edges, bodyInput);
+      const dagResult = await executeDagGraph(nodes, edges, bodyInput);
       const finishedAt = new Date().toISOString();
 
       try {
@@ -2810,7 +3183,7 @@ export default {
         if (nodes.length > 0) {
           const executionId = randomId('exec');
           const startedAt = new Date().toISOString();
-          const dagResult = executeDagGraph(nodes, edges, payload ?? {});
+          const dagResult = await executeDagGraph(nodes, edges, payload ?? {});
           const finishedAt = new Date().toISOString();
 
           try {
@@ -3726,7 +4099,7 @@ Write the full article now in Markdown.`;
         try {
           if (Array.isArray(body.nodes) && body.nodes.length > 0) {
             const edgesList = Array.isArray(body.edges) ? body.edges : [];
-            const dagResult = executeDagGraph(body.nodes, edgesList, body.input ?? {});
+            const dagResult = await executeDagGraph(body.nodes, edgesList, body.input ?? {});
             if (!dagResult.ok) {
               return jsonResponse(
                 {

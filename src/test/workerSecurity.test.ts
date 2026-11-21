@@ -119,7 +119,8 @@ function createMockDb(options?: { failHealthCheck?: boolean }): {
         }
         if (
           query.startsWith("SELECT id, name, nodes, edges, is_active FROM workflows WHERE id = ? AND user_id = ?") ||
-          query.startsWith("SELECT id, user_id, name, description, is_active FROM workflows WHERE id = ? AND user_id = ?")
+          query.startsWith("SELECT id, user_id, name, description, is_active FROM workflows WHERE id = ? AND user_id = ?") ||
+          query.startsWith("SELECT * FROM workflows WHERE id = ? AND user_id = ?")
         ) {
           const [wfId, userId] = args as string[];
           const wf = workflows.get(wfId);
@@ -1863,5 +1864,165 @@ describe("Worker Backend Security & Contract Suite", () => {
     );
     expect(keyRes.status).toBe(200);
     expect(keyRes.headers.get("Strict-Transport-Security")).toBe("max-age=31536000; includeSubDomains; preload");
+  });
+
+  it("exports, imports, and guards workflows against SSRF in HTTP DAG nodes", async () => {
+    const mock = createMockDb();
+    const env = createEnv(mock.db);
+
+    const signupRes = await worker.fetch(
+      new Request("https://shadowflow.work/api/auth/signup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: "porter@example.com", password: "secure-password-123" }),
+      }),
+      env
+    );
+    const { token } = (await signupRes.json()) as { token: string };
+
+    const otherSignup = await worker.fetch(
+      new Request("https://shadowflow.work/api/auth/signup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: "other-porter@example.com", password: "secure-password-123" }),
+      }),
+      env
+    );
+    const { token: otherToken } = (await otherSignup.json()) as { token: string };
+
+    // 1. Create a workflow to export
+    const createRes = await worker.fetch(
+      new Request("https://shadowflow.work/api/workflows", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: "Exportable Pipeline",
+          description: "Pipeline ready for portable backup",
+          nodes: [{ id: "n1", type: "trigger", label: "Start" }],
+          edges: [],
+          settings: { mode: "active" },
+        }),
+      }),
+      env
+    );
+    expect(createRes.status).toBe(201);
+    const { workflow } = (await createRes.json()) as { workflow: { id: string } };
+
+    // 2. Export tests
+    const unauthExport = await worker.fetch(
+      new Request(`https://shadowflow.work/api/workflows/${workflow.id}/export`),
+      env
+    );
+    expect(unauthExport.status).toBe(401);
+
+    const otherExport = await worker.fetch(
+      new Request(`https://shadowflow.work/api/workflows/${workflow.id}/export`, {
+        headers: { Authorization: `Bearer ${otherToken}` },
+      }),
+      env
+    );
+    expect(otherExport.status).toBe(404);
+
+    const okExport = await worker.fetch(
+      new Request(`https://shadowflow.work/api/workflows/${workflow.id}/export`, {
+        headers: { Authorization: `Bearer ${token}` },
+      }),
+      env
+    );
+    expect(okExport.status).toBe(200);
+    expect(okExport.headers.get("Content-Disposition")).toContain(`workflow-${workflow.id}.json`);
+    const exportData = (await okExport.json()) as {
+      format: string;
+      schemaVersion: number;
+      workflow: { name: string; nodes: unknown[]; settings: Record<string, unknown> };
+    };
+    expect(exportData.format).toBe("shadowflow-workflow");
+    expect(exportData.schemaVersion).toBe(1);
+    expect(exportData.workflow.name).toBe("Exportable Pipeline");
+    expect(exportData.workflow.settings).toEqual({ mode: "active" });
+
+    // 3. Import tests
+    const unauthImport = await worker.fetch(
+      new Request("https://shadowflow.work/api/workflows/import", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(exportData),
+      }),
+      env
+    );
+    expect(unauthImport.status).toBe(401);
+
+    const badImport = await worker.fetch(
+      new Request("https://shadowflow.work/api/workflows/import", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ name: "Broken", nodes: "not-an-array", edges: [] }),
+      }),
+      env
+    );
+    expect(badImport.status).toBe(400);
+
+    const okImport = await worker.fetch(
+      new Request("https://shadowflow.work/api/workflows/import", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify(exportData),
+      }),
+      env
+    );
+    expect(okImport.status).toBe(201);
+    const importedBody = (await okImport.json()) as { success: boolean; workflow: { id: string; name: string } };
+    expect(importedBody.success).toBe(true);
+    expect(importedBody.workflow.id).not.toBe(workflow.id);
+    expect(importedBody.workflow.name).toBe("Exportable Pipeline");
+
+    // 4. SSRF protection in HTTP DAG nodes
+    const ssrfTargets = [
+      "http://127.0.0.1:8080/admin",
+      "http://localhost:3000/keys",
+      "http://169.254.169.254/latest/meta-data",
+      "http://metadata.google.internal/computeMetadata/v1",
+      "http://10.0.0.1:9000",
+      "http://192.168.1.1/router",
+      "http://172.16.0.5:8080",
+      "ftp://malicious.org/file",
+    ];
+
+    for (const targetUrl of ssrfTargets) {
+      const ssrfDag = await worker.fetch(
+        new Request("https://shadowflow.work/api/execute", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            nodes: [
+              {
+                id: "http_node",
+                type: "http-request",
+                config: { url: targetUrl, method: "GET" },
+              },
+            ],
+            edges: [],
+            input: {},
+          }),
+        }),
+        env
+      );
+      expect(ssrfDag.status).toBe(200);
+      const ssrfBody = (await ssrfDag.json()) as { output: { ok: boolean; blocked?: boolean; error?: string } };
+      expect(ssrfBody.output.ok).toBe(false);
+      expect(ssrfBody.output.blocked).toBe(true);
+      expect(ssrfBody.output.error).toContain("SSRF_BLOCKED");
+    }
+
+    // 5. Manifest inspection
+    const manifestRes = await worker.fetch(new Request("https://shadowflow.work/api/backend/tools"), env);
+    const manifest = (await manifestRes.json()) as {
+      endpoints: Record<string, unknown>;
+      tools: Array<{ function: { name: string } }>;
+    };
+    expect(manifest.endpoints).toHaveProperty("export_workflow");
+    expect(manifest.endpoints).toHaveProperty("import_workflow");
+    expect(manifest.tools.map((t) => t.function.name)).toContain("export_workflow");
+    expect(manifest.tools.map((t) => t.function.name)).toContain("import_workflow");
   });
 });
