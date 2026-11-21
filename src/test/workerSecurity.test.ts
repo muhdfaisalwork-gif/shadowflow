@@ -2025,4 +2025,189 @@ describe("Worker Backend Security & Contract Suite", () => {
     expect(manifest.tools.map((t) => t.function.name)).toContain("export_workflow");
     expect(manifest.tools.map((t) => t.function.name)).toContain("import_workflow");
   });
+
+  it("duplicates workflows and executes crypto, hash, and encoding DAG nodes with timeout guard", async () => {
+    const mock = createMockDb();
+    const env = createEnv(mock.db);
+
+    const signupRes = await worker.fetch(
+      new Request("https://shadowflow.work/api/auth/signup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: "duplicator@example.com", password: "secure-password-123" }),
+      }),
+      env
+    );
+    const { token } = (await signupRes.json()) as { token: string };
+
+    const otherSignup = await worker.fetch(
+      new Request("https://shadowflow.work/api/auth/signup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: "other-duplicator@example.com", password: "secure-password-123" }),
+      }),
+      env
+    );
+    const { token: otherToken } = (await otherSignup.json()) as { token: string };
+
+    // 1. Create source workflow
+    const createRes = await worker.fetch(
+      new Request("https://shadowflow.work/api/workflows", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: "Original Pipeline",
+          description: "Base automation flow",
+          nodes: [{ id: "n1", type: "trigger" }, { id: "n2", type: "transform" }],
+          edges: [{ source: "n1", target: "n2" }],
+          settings: { env: "prod" },
+          is_active: true,
+        }),
+      }),
+      env
+    );
+    expect(createRes.status).toBe(201);
+    const { workflow: originalWf } = (await createRes.json()) as { workflow: { id: string } };
+
+    // 2. Duplicate tests: auth & permissions
+    const unauthDup = await worker.fetch(
+      new Request(`https://shadowflow.work/api/workflows/${originalWf.id}/duplicate`, {
+        method: "POST",
+      }),
+      env
+    );
+    expect(unauthDup.status).toBe(401);
+
+    const otherDup = await worker.fetch(
+      new Request(`https://shadowflow.work/api/workflows/${originalWf.id}/duplicate`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${otherToken}` },
+      }),
+      env
+    );
+    expect(otherDup.status).toBe(404);
+
+    // 3. Successful duplicate with default copy name
+    const okDupDefault = await worker.fetch(
+      new Request(`https://shadowflow.work/api/workflows/${originalWf.id}/duplicate`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      }),
+      env
+    );
+    expect(okDupDefault.status).toBe(201);
+    const dupBodyDefault = (await okDupDefault.json()) as {
+      success: boolean;
+      workflow: { id: string; name: string; is_active: boolean };
+    };
+    expect(dupBodyDefault.success).toBe(true);
+    expect(dupBodyDefault.workflow.id).not.toBe(originalWf.id);
+    expect(dupBodyDefault.workflow.name).toBe("Original Pipeline (Copy)");
+    expect(dupBodyDefault.workflow.is_active).toBe(false);
+
+    // 4. Successful duplicate with custom name
+    const okDupCustom = await worker.fetch(
+      new Request(`https://shadowflow.work/api/workflows/${originalWf.id}/duplicate`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ name: "Staging Pipeline Clone" }),
+      }),
+      env
+    );
+    expect(okDupCustom.status).toBe(201);
+    const dupBodyCustom = (await okDupCustom.json()) as {
+      success: boolean;
+      workflow: { id: string; name: string };
+    };
+    expect(dupBodyCustom.workflow.name).toBe("Staging Pipeline Clone");
+
+    // 5. Crypto, hash, hmac, base64, and uuid DAG node execution
+    const cryptoDag = await worker.fetch(
+      new Request("https://shadowflow.work/api/execute", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          nodes: [
+            {
+              id: "hash_step",
+              type: "hash",
+              config: { field: "rawText", operation: "sha256", encoding: "hex", outputField: "hashedHex" },
+            },
+            {
+              id: "b64_step",
+              type: "base64",
+              config: { field: "rawText", operation: "base64_encode", outputField: "encodedB64" },
+            },
+            {
+              id: "uuid_step",
+              type: "uuid",
+              config: { outputField: "genId" },
+            },
+            {
+              id: "hmac_step",
+              type: "hmac",
+              config: { field: "rawText", secret: "test-secret", encoding: "hex", outputField: "sigHex" },
+            },
+          ],
+          edges: [
+            { source: "hash_step", target: "b64_step" },
+            { source: "b64_step", target: "uuid_step" },
+            { source: "uuid_step", target: "hmac_step" },
+          ],
+          input: { rawText: "shadowflow-test-payload" },
+        }),
+      }),
+      env
+    );
+    expect(cryptoDag.status).toBe(200);
+    const cryptoBody = (await cryptoDag.json()) as {
+      success: boolean;
+      output: {
+        rawText: string;
+        hashedHex: string;
+        encodedB64: string;
+        genId: string;
+        sigHex: string;
+      };
+    };
+    expect(cryptoBody.success).toBe(true);
+    expect(typeof cryptoBody.output.hashedHex).toBe("string");
+    expect(cryptoBody.output.hashedHex.length).toBe(64); // SHA-256 hex is 64 chars
+    expect(cryptoBody.output.encodedB64).toBe(btoa("shadowflow-test-payload"));
+    expect(cryptoBody.output.genId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
+    expect(typeof cryptoBody.output.sigHex).toBe("string");
+    expect(cryptoBody.output.sigHex.length).toBe(64); // HMAC-SHA256 hex is 64 chars
+
+    // 6. Base64 decode node
+    const b64DecodeDag = await worker.fetch(
+      new Request("https://shadowflow.work/api/execute", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          nodes: [
+            {
+              id: "dec_step",
+              type: "decode",
+              config: { field: "b64", operation: "base64_decode", outputField: "decoded" },
+            },
+          ],
+          edges: [],
+          input: { b64: btoa("hello-world") },
+        }),
+      }),
+      env
+    );
+    expect(b64DecodeDag.status).toBe(200);
+    const b64Body = (await b64DecodeDag.json()) as { output: { decoded: string } };
+    expect(b64Body.output.decoded).toBe("hello-world");
+
+    // 7. Manifest check for duplicate_workflow
+    const manifestRes = await worker.fetch(new Request("https://shadowflow.work/api/backend/tools"), env);
+    const manifest = (await manifestRes.json()) as {
+      endpoints: Record<string, unknown>;
+      tools: Array<{ function: { name: string } }>;
+    };
+    expect(manifest.endpoints).toHaveProperty("duplicate_workflow");
+    expect(manifest.tools.map((t) => t.function.name)).toContain("duplicate_workflow");
+  });
 });

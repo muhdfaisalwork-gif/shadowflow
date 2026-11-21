@@ -415,7 +415,8 @@ function isSsrfSafeUrl(rawUrl: string): { safe: boolean; error?: string; url?: U
 async function executeDagGraph(
   nodes: DagNodeInput[],
   edges: DagEdgeInput[],
-  initialInput: unknown
+  initialInput: unknown,
+  options: { maxDurationMs?: number } = {}
 ): Promise<DagExecResult> {
   if (nodes.length > 100) {
     return { ok: false, status: 400, error: 'DAG limit exceeded: maximum 100 nodes allowed per execution' };
@@ -485,12 +486,23 @@ async function executeDagGraph(
   }
 
   const startTime = Date.now();
+  const maxDurationMs =
+    typeof options.maxDurationMs === 'number' && Number.isFinite(options.maxDurationMs)
+      ? Math.min(Math.max(options.maxDurationMs, 500), 45000)
+      : 25000;
   const activatedInputs = new Map<string, unknown[]>();
   const stepTraces: DagStepTrace[] = [];
   let stepsExecuted = 0;
   let lastCompletedOutput: unknown = initialInput;
 
   for (const nodeId of executionOrder) {
+    if (Date.now() - startTime > maxDurationMs) {
+      return {
+        ok: false,
+        status: 408,
+        error: `DAG execution timed out after ${Date.now() - startTime}ms (limit: ${maxDurationMs}ms)`,
+      };
+    }
     const node = nodeMap.get(nodeId)!;
     const nodeType = String(node.data?.flowType || node.data?.type || node.type || 'action').toLowerCase();
     const label = String(node.data?.label || node.label || nodeId);
@@ -763,6 +775,101 @@ async function executeDagGraph(
           }
         }
       }
+    } else if (
+      nodeType === 'crypto' ||
+      nodeType === 'hash' ||
+      nodeType === 'digest' ||
+      nodeType === 'hmac' ||
+      nodeType === 'uuid' ||
+      nodeType === 'base64' ||
+      nodeType === 'encode' ||
+      nodeType === 'decode'
+    ) {
+      const rawOp =
+        typeof cfg.operation === 'string'
+          ? cfg.operation.trim().toLowerCase()
+          : nodeType === 'uuid'
+            ? 'uuid'
+            : nodeType === 'hmac'
+              ? 'hmac'
+              : nodeType === 'base64'
+                ? 'base64_encode'
+                : 'sha256';
+
+      const field = typeof cfg.field === 'string' ? cfg.field.trim() : '';
+      const targetVal = field ? getByDotPath(currentInput, field) : currentInput;
+      const encoding =
+        typeof cfg.encoding === 'string' && cfg.encoding.trim().toLowerCase() === 'base64' ? 'base64' : 'hex';
+      const outKey = typeof cfg.outputField === 'string' ? cfg.outputField.trim() : '';
+
+      let computed: unknown;
+      if (rawOp === 'uuid') {
+        computed = crypto.randomUUID();
+      } else if (rawOp === 'base64_encode' || rawOp === 'base64') {
+        const textToEncode = typeof targetVal === 'string' ? targetVal : JSON.stringify(targetVal ?? '');
+        const bytes = new TextEncoder().encode(textToEncode);
+        let binary = '';
+        for (let i = 0; i < bytes.length; i++) {
+          binary += String.fromCharCode(bytes[i]);
+        }
+        computed = btoa(binary);
+      } else if (rawOp === 'base64_decode') {
+        try {
+          const binary = atob(String(targetVal ?? ''));
+          const bytes = new Uint8Array(binary.length);
+          for (let i = 0; i < binary.length; i++) {
+            bytes[i] = binary.charCodeAt(i);
+          }
+          const decodedText = new TextDecoder().decode(bytes);
+          computed = safeJsonParse(decodedText, decodedText);
+        } catch (decErr) {
+          computed = { error: 'Failed to decode base64: ' + String(decErr) };
+        }
+      } else if (rawOp === 'hmac') {
+        const secret =
+          typeof cfg.secret === 'string'
+            ? interpolateTemplate(cfg.secret, currentInput)
+            : typeof cfg.key === 'string'
+              ? interpolateTemplate(cfg.key, currentInput)
+              : '';
+        const textToSign = typeof targetVal === 'string' ? targetVal : JSON.stringify(targetVal ?? '');
+        const enc = new TextEncoder();
+        const key = await crypto.subtle.importKey(
+          'raw',
+          enc.encode(secret),
+          { name: 'HMAC', hash: 'SHA-256' },
+          false,
+          ['sign']
+        );
+        const sig = await crypto.subtle.sign('HMAC', key, enc.encode(textToSign));
+        computed =
+          encoding === 'base64'
+            ? btoa(String.fromCharCode(...new Uint8Array(sig)))
+            : Array.from(new Uint8Array(sig))
+                .map((b) => b.toString(16).padStart(2, '0'))
+                .join('');
+      } else {
+        const algo = rawOp === 'sha512' ? 'SHA-512' : rawOp === 'sha1' ? 'SHA-1' : 'SHA-256';
+        const textToHash = typeof targetVal === 'string' ? targetVal : JSON.stringify(targetVal ?? '');
+        const hashBuf = await crypto.subtle.digest(algo, new TextEncoder().encode(textToHash));
+        computed =
+          encoding === 'base64'
+            ? btoa(String.fromCharCode(...new Uint8Array(hashBuf)))
+            : Array.from(new Uint8Array(hashBuf))
+                .map((b) => b.toString(16).padStart(2, '0'))
+                .join('');
+      }
+
+      if (outKey && !UNSAFE_OBJECT_KEYS.has(outKey)) {
+        const base =
+          currentInput && typeof currentInput === 'object' && !Array.isArray(currentInput)
+            ? { ...(currentInput as Record<string, unknown>) }
+            : {};
+        base[outKey] = computed;
+        output = base;
+      } else {
+        output = { operation: rawOp, result: computed, sourceField: field || null };
+      }
     } else {
       output = { nodeType, label, status: 'executed', input: currentInput };
     }
@@ -826,6 +933,7 @@ const BACKEND_TOOLS_MANIFEST = {
     restore_workflow_version: { method: 'POST', path: '/api/workflows/:id/versions/:versionId/restore', requiresAuth: true },
     export_workflow: { method: 'GET', path: '/api/workflows/:id/export', requiresAuth: true },
     import_workflow: { method: 'POST', path: '/api/workflows/import', requiresAuth: true },
+    duplicate_workflow: { method: 'POST', path: '/api/workflows/:id/duplicate', requiresAuth: true },
     trigger_webhook: { method: 'POST', path: '/webhook/:id', requiresAuth: false },
   },
   tools: [
@@ -1002,6 +1110,21 @@ const BACKEND_TOOLS_MANIFEST = {
             },
           },
           required: ['workflow'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'duplicate_workflow',
+        description: 'Duplicate / clone an existing saved workflow with an inactive initial state and a copy suffix.',
+        parameters: {
+          type: 'object',
+          properties: {
+            workflowId: { type: 'string', description: 'Source workflow ID to clone.' },
+            name: { type: 'string', description: 'Optional custom name for the duplicated workflow.' },
+          },
+          required: ['workflowId'],
         },
       },
     },
@@ -2698,6 +2821,80 @@ export default {
     // POST /api/workflows/:id/versions/:versionId/restore & POST /api/workflows/:id/execute
     if (url.pathname.startsWith('/api/workflows/') && request.method === 'POST') {
       const parts = url.pathname.split('/');
+
+      if (parts.length === 5 && parts[3].trim() && (parts[4] === 'duplicate' || parts[4] === 'clone')) {
+        const user = await getAuthUser(request, env);
+        if (!user) {
+          return jsonResponse({ error: 'Unauthorized' }, 401, request);
+        }
+
+        const workflowId = parts[3].trim();
+        const wf = (await env.DB.prepare('SELECT * FROM workflows WHERE id = ? AND user_id = ?')
+          .bind(workflowId, user.id)
+          .first()) as Record<string, unknown> | null;
+
+        if (!wf) {
+          return jsonResponse({ error: 'Workflow not found' }, 404, request);
+        }
+
+        let customName = '';
+        const parsedBody = await readBoundedJson<{ name?: unknown }>(request, 64 * 1024, { allowEmpty: true });
+        if (parsedBody.ok && typeof parsedBody.data?.name === 'string') {
+          customName = parsedBody.data.name.trim();
+        }
+
+        const newId = randomId('wf');
+        const originalName = String(wf.name || 'Workflow');
+        const clonedName = (customName || `${originalName} (Copy)`).slice(0, 200);
+        const description = wf.description ? String(wf.description) : '';
+        const nodesStr = String(wf.nodes || '[]');
+        const edgesStr = String(wf.edges || '[]');
+        const settingsStr = String(wf.settings || '{}');
+        const now = new Date().toISOString();
+        const versionId = randomId('ver');
+        const auditId = randomId('aud');
+
+        await env.DB.batch([
+          env.DB.prepare(
+            'INSERT INTO workflows (id, user_id, name, description, nodes, edges, settings, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+          ).bind(newId, user.id, clonedName, description, nodesStr, edgesStr, settingsStr, 0, now, now),
+          env.DB.prepare(
+            'INSERT INTO workflow_versions (id, workflow_id, version, nodes, edges, settings, created_by, change_summary, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+          ).bind(versionId, newId, 1, nodesStr, edgesStr, settingsStr, user.id, `Cloned from ${workflowId}`, now),
+          env.DB.prepare(
+            'INSERT INTO audit_logs (id, user_id, action, resource_type, resource_id, details, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+          ).bind(
+            auditId,
+            user.id,
+            'workflow.duplicate',
+            'workflow',
+            newId,
+            JSON.stringify({ originalWorkflowId: workflowId, name: clonedName }),
+            now
+          ),
+        ]);
+
+        return jsonResponse(
+          {
+            success: true,
+            message: 'Workflow duplicated successfully',
+            workflow: {
+              id: newId,
+              user_id: user.id,
+              name: clonedName,
+              description,
+              nodes: safeJsonParse(nodesStr, []),
+              edges: safeJsonParse(edgesStr, []),
+              settings: safeJsonParse(settingsStr, {}),
+              is_active: false,
+              created_at: now,
+              updated_at: now,
+            },
+          },
+          201,
+          request
+        );
+      }
 
       if (parts.length === 7 && parts[3].trim() && parts[4] === 'versions' && parts[5].trim() && parts[6] === 'restore') {
         const user = await getAuthUser(request, env);
