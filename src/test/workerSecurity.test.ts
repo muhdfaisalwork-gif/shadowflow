@@ -55,6 +55,16 @@ interface StoredWorkflowVersion {
   created_at: string;
 }
 
+interface StoredAuditLog {
+  id: string;
+  user_id: string;
+  action: string;
+  resource_type: string;
+  resource_id: string;
+  details: string;
+  created_at: string;
+}
+
 function createMockDb(options?: { failHealthCheck?: boolean }): {
   db: D1Database;
   users: Map<string, StoredUser>;
@@ -62,6 +72,7 @@ function createMockDb(options?: { failHealthCheck?: boolean }): {
   workflows: Map<string, StoredWorkflow>;
   workflowRuns: StoredWorkflowRun[];
   workflowVersions: StoredWorkflowVersion[];
+  auditLogs: StoredAuditLog[];
   graphMemoryNodes: Array<{ id: string; user_id: string; node_type: string; label: string; data: string }>;
   aiUsageWriteCount: () => number;
   batchCallCount: () => number;
@@ -72,6 +83,7 @@ function createMockDb(options?: { failHealthCheck?: boolean }): {
   const workflows = new Map<string, StoredWorkflow>();
   const workflowRuns: StoredWorkflowRun[] = [];
   const workflowVersions: StoredWorkflowVersion[] = [];
+  const auditLogs: StoredAuditLog[] = [];
   const graphMemoryNodes: Array<{ id: string; user_id: string; node_type: string; label: string; data: string }> = [];
   const aiUsageCounts = new Map<string, number>();
   let healthQueries = 0;
@@ -135,6 +147,7 @@ function createMockDb(options?: { failHealthCheck?: boolean }): {
         }
         if (
           query.startsWith("SELECT id, user_id, name, description, nodes, edges, settings, is_active FROM workflows WHERE id = ?") ||
+          query.startsWith("SELECT id, user_id, name FROM workflows WHERE id = ?") ||
           query.startsWith("SELECT id, user_id FROM workflows WHERE id = ?") ||
           query.startsWith("SELECT id, name, nodes, edges, settings, is_active FROM workflows WHERE id = ?")
         ) {
@@ -296,6 +309,9 @@ function createMockDb(options?: { failHealthCheck?: boolean }): {
           } else {
             graphMemoryNodes.push(item);
           }
+        } else if (query.startsWith("INSERT INTO audit_logs")) {
+          const [id, user_id, action, resource_type, resource_id, details, created_at] = args as string[];
+          auditLogs.push({ id, user_id, action, resource_type, resource_id, details, created_at });
         }
         return { success: true };
       },
@@ -310,6 +326,32 @@ function createMockDb(options?: { failHealthCheck?: boolean }): {
           const results = workflowRuns
             .filter((r) => r.workflow_id === wfId)
             .sort((a, b) => b.started_at.localeCompare(a.started_at))
+            .slice(0, limit);
+          return { success: true, results: results as T[] };
+        }
+        if (query.includes("FROM audit_logs")) {
+          const userId = String(args[0]);
+          let filtered = auditLogs.filter((a) => a.user_id === userId);
+          if (query.includes("resource_type = ?") && query.includes("resource_id = ?")) {
+            const rType = String(args[1]);
+            const rId = String(args[2]);
+            filtered = filtered.filter((a) => a.resource_type === rType && a.resource_id === rId);
+          } else {
+            if (query.includes("resource_type = ?")) {
+              const rType = String(args[1]);
+              filtered = filtered.filter((a) => a.resource_type === rType);
+            }
+            if (query.includes("action = ?")) {
+              const actionMatch = args.find((a, i) => i > 0 && typeof a === "string" && a.startsWith("workflow."));
+              if (actionMatch) {
+                filtered = filtered.filter((a) => a.action === String(actionMatch));
+              }
+            }
+          }
+          const rawLimit = Number(args[args.length - 1]);
+          const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? rawLimit : 50;
+          const results = filtered
+            .sort((a, b) => b.created_at.localeCompare(a.created_at))
             .slice(0, limit);
           return { success: true, results: results as T[] };
         }
@@ -340,6 +382,7 @@ function createMockDb(options?: { failHealthCheck?: boolean }): {
     workflows,
     workflowRuns,
     workflowVersions,
+    auditLogs,
     graphMemoryNodes,
     aiUsageWriteCount: () => aiUsageWrites,
     batchCallCount: () => batchCalls,
@@ -2516,5 +2559,129 @@ describe("Worker Backend Security & Contract Suite", () => {
     };
     expect(manifest.endpoints).toHaveProperty("replay_workflow_run");
     expect(manifest.tools.map((t) => t.function.name)).toContain("replay_workflow_run");
+  });
+
+  it("records audit logs across workflow lifecycle and exposes audit log queries and tool definitions", async () => {
+    const mock = createMockDb();
+    const env = createEnv(mock.db);
+
+    const signupRes = await worker.fetch(
+      new Request("https://shadowflow.work/api/auth/signup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: "auditor@example.com", password: "secure-password-123" }),
+      }),
+      env
+    );
+    const { token } = (await signupRes.json()) as { token: string };
+    const authHeaders = { Authorization: `Bearer ${token}` };
+
+    // 1. Create a workflow - should record workflow.create in audit_logs
+    const createRes = await worker.fetch(
+      new Request("https://shadowflow.work/api/workflows", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeaders },
+        body: JSON.stringify({
+          name: "Audit Test Workflow",
+          description: "Workflow for auditing verification",
+          nodes: [{ id: "n1", type: "log", config: { message: "step 1" } }],
+          edges: [],
+        }),
+      }),
+      env
+    );
+    expect(createRes.status).toBe(201);
+    const createBody = (await createRes.json()) as { workflow: { id: string } };
+    const workflowId = createBody.workflow.id;
+
+    // 2. Update the workflow - should record workflow.update in audit_logs
+    const updateRes = await worker.fetch(
+      new Request(`https://shadowflow.work/api/workflows/${workflowId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", ...authHeaders },
+        body: JSON.stringify({
+          name: "Audit Test Workflow Renamed",
+          change_summary: "Updated node configurations",
+        }),
+      }),
+      env
+    );
+    expect(updateRes.status).toBe(200);
+
+    // 3. Query workflow-scoped audit logs: GET /api/workflows/:id/audit-logs
+    const wfAuditRes = await worker.fetch(
+      new Request(`https://shadowflow.work/api/workflows/${workflowId}/audit-logs`),
+      env
+    );
+    expect(wfAuditRes.status).toBe(401);
+
+    const wfAuditAuthRes = await worker.fetch(
+      new Request(`https://shadowflow.work/api/workflows/${workflowId}/audit-logs`, {
+        headers: authHeaders,
+      }),
+      env
+    );
+    expect(wfAuditAuthRes.status).toBe(200);
+    const wfAuditBody = (await wfAuditAuthRes.json()) as {
+      success: boolean;
+      workflowId: string;
+      count: number;
+      logs: Array<{ action: string; resource_type: string; resource_id: string }>;
+    };
+    expect(wfAuditBody.success).toBe(true);
+    expect(wfAuditBody.workflowId).toBe(workflowId);
+    expect(wfAuditBody.logs.length).toBeGreaterThanOrEqual(2);
+    expect(wfAuditBody.logs.some((l) => l.action === "workflow.create")).toBe(true);
+    expect(wfAuditBody.logs.some((l) => l.action === "workflow.update")).toBe(true);
+
+    // 4. Query top-level audit logs: GET /api/audit-logs
+    const topAuditRes = await worker.fetch(
+      new Request("https://shadowflow.work/api/audit-logs", { headers: authHeaders }),
+      env
+    );
+    expect(topAuditRes.status).toBe(200);
+    const topAuditBody = (await topAuditRes.json()) as {
+      success: boolean;
+      count: number;
+      logs: Array<{ action: string; resource_type: string }>;
+    };
+    expect(topAuditBody.success).toBe(true);
+    expect(topAuditBody.count).toBeGreaterThanOrEqual(2);
+
+    // 5. Delete workflow - should record workflow.delete in audit_logs
+    const deleteRes = await worker.fetch(
+      new Request(`https://shadowflow.work/api/workflows/${workflowId}`, {
+        method: "DELETE",
+        headers: authHeaders,
+      }),
+      env
+    );
+    expect(deleteRes.status).toBe(200);
+
+    const deleteAuditRes = await worker.fetch(
+      new Request("https://shadowflow.work/api/audit-logs?action=workflow.delete", {
+        headers: authHeaders,
+      }),
+      env
+    );
+    expect(deleteAuditRes.status).toBe(200);
+    const deleteAuditBody = (await deleteAuditRes.json()) as {
+      logs: Array<{ action: string; resource_id: string }>;
+    };
+    expect(deleteAuditBody.logs.some((l) => l.action === "workflow.delete" && l.resource_id === workflowId)).toBe(true);
+
+    // 6. Verify tools manifest exposure
+    const manifestRes = await worker.fetch(new Request("https://shadowflow.work/api/backend/tools"), env);
+    expect(manifestRes.status).toBe(200);
+    const manifest = (await manifestRes.json()) as {
+      endpoints: Record<string, unknown>;
+      tools: Array<{ function: { name: string } }>;
+    };
+    expect(manifest.endpoints).toHaveProperty("get_audit_logs");
+    expect(manifest.endpoints).toHaveProperty("get_workflow_audit_logs");
+    const toolNames = manifest.tools.map((t) => t.function.name);
+    expect(toolNames).toContain("get_audit_logs");
+    expect(toolNames).toContain("get_workflow_audit_logs");
+    expect(toolNames.length).toBe(18);
   });
 });

@@ -1166,6 +1166,8 @@ const BACKEND_TOOLS_MANIFEST = {
     duplicate_workflow: { method: 'POST', path: '/api/workflows/:id/duplicate', requiresAuth: true },
     validate_workflow: { method: 'POST', path: '/api/workflows/validate', requiresAuth: false },
     replay_workflow_run: { method: 'POST', path: '/api/workflows/:id/runs/:runId/replay', requiresAuth: true },
+    get_audit_logs: { method: 'GET', path: '/api/audit-logs', requiresAuth: true },
+    get_workflow_audit_logs: { method: 'GET', path: '/api/workflows/:id/audit-logs', requiresAuth: true },
     trigger_webhook: { method: 'POST', path: '/webhook/:id', requiresAuth: false },
   },
   tools: [
@@ -1388,6 +1390,41 @@ const BACKEND_TOOLS_MANIFEST = {
             overrideInput: { type: 'object', description: 'Optional input payload overriding the original run input.' },
           },
           required: ['workflowId', 'runId'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'get_audit_logs',
+        description: 'Query security and operational audit logs for the authenticated user, optionally filtered by action, resource_type, or resource_id.',
+        parameters: {
+          type: 'object',
+          properties: {
+            limit: { type: 'number', description: 'Maximum number of audit logs to return (1-200, default 50).' },
+            resource_type: { type: 'string', description: 'Filter by resource type, e.g. workflow.' },
+            resource_id: { type: 'string', description: 'Filter by resource ID.' },
+            action: {
+              type: 'string',
+              description: 'Filter by action name, e.g. workflow.create, workflow.update, workflow.delete, workflow.import, workflow.duplicate, workflow.restore, workflow.replay.',
+            },
+          },
+          required: [],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'get_workflow_audit_logs',
+        description: 'Query audit logs specifically for a single workflow owned by the authenticated user.',
+        parameters: {
+          type: 'object',
+          properties: {
+            workflowId: { type: 'string', description: 'Workflow ID.' },
+            limit: { type: 'number', description: 'Maximum number of audit logs to return (1-100, default 50).' },
+          },
+          required: ['workflowId'],
         },
       },
     },
@@ -2757,6 +2794,56 @@ export default {
     }
 
     // ------------------------------------------------------------------------
+    // AUDIT LOGS API ROUTES: /api/audit-logs
+    // ------------------------------------------------------------------------
+
+    // GET /api/audit-logs - list user audit logs
+    if (url.pathname === '/api/audit-logs' && request.method === 'GET') {
+      const user = await getAuthUser(request, env);
+      if (!user) {
+        return jsonResponse({ error: 'Unauthorized' }, 401, request);
+      }
+
+      const rawLimit = parseInt(url.searchParams.get('limit') || '50', 10);
+      const limit = Number.isFinite(rawLimit) ? Math.min(Math.max(rawLimit, 1), 200) : 50;
+      const resourceType = url.searchParams.get('resource_type')?.trim();
+      const resourceId = url.searchParams.get('resource_id')?.trim();
+      const action = url.searchParams.get('action')?.trim();
+
+      let query = 'SELECT id, user_id, action, resource_type, resource_id, details, created_at FROM audit_logs WHERE user_id = ?';
+      const params: (string | number)[] = [user.id];
+
+      if (resourceType) {
+        query += ' AND resource_type = ?';
+        params.push(resourceType);
+      }
+      if (resourceId) {
+        query += ' AND resource_id = ?';
+        params.push(resourceId);
+      }
+      if (action) {
+        query += ' AND action = ?';
+        params.push(action);
+      }
+
+      query += ' ORDER BY created_at DESC LIMIT ?';
+      params.push(limit);
+
+      const rows = await env.DB.prepare(query).bind(...params).all<Record<string, unknown>>();
+      const logs = (rows.results || []).map((row) => ({
+        id: String(row.id),
+        user_id: String(row.user_id),
+        action: String(row.action),
+        resource_type: String(row.resource_type),
+        resource_id: String(row.resource_id),
+        details: safeJsonParse(row.details, {}),
+        created_at: String(row.created_at),
+      }));
+
+      return jsonResponse({ success: true, count: logs.length, logs }, 200, request);
+    }
+
+    // ------------------------------------------------------------------------
     // WORKFLOWS API ROUTES: /api/workflows/*
     // ------------------------------------------------------------------------
 
@@ -2935,19 +3022,28 @@ export default {
         const isActive = body.is_active !== false ? 1 : 0;
         const now = new Date().toISOString();
 
-        await env.DB.prepare(
-          'INSERT INTO workflows (id, user_id, name, description, nodes, edges, settings, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
-        )
-          .bind(id, user.id, name, description, nodesStr, edgesStr, settingsStr, isActive, now, now)
-          .run();
-
-        // Also save initial version
         const versionId = randomId('ver');
-        await env.DB.prepare(
-          'INSERT INTO workflow_versions (id, workflow_id, version, nodes, edges, settings, created_by, change_summary, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
-        )
-          .bind(versionId, id, 1, nodesStr, edgesStr, settingsStr, user.id, 'Initial creation', now)
-          .run();
+        const auditId = randomId('audit');
+
+        await env.DB.batch([
+          env.DB.prepare(
+            'INSERT INTO workflows (id, user_id, name, description, nodes, edges, settings, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+          ).bind(id, user.id, name, description, nodesStr, edgesStr, settingsStr, isActive, now, now),
+          env.DB.prepare(
+            'INSERT INTO workflow_versions (id, workflow_id, version, nodes, edges, settings, created_by, change_summary, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+          ).bind(versionId, id, 1, nodesStr, edgesStr, settingsStr, user.id, 'Initial creation', now),
+          env.DB.prepare(
+            'INSERT INTO audit_logs (id, user_id, action, resource_type, resource_id, details, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+          ).bind(
+            auditId,
+            user.id,
+            'workflow.create',
+            'workflow',
+            id,
+            JSON.stringify({ name, nodeCount: Array.isArray(nodesVal) ? nodesVal.length : 0 }),
+            now
+          ),
+        ]);
 
         return jsonResponse(
           {
@@ -3100,6 +3196,38 @@ export default {
           200,
           request
         );
+      }
+
+      if (parts[4] === 'audit-logs') {
+        if (parts.length > 5) {
+          return jsonResponse({ error: 'Workflow subresource not found' }, 404, request);
+        }
+        const wf = await env.DB.prepare('SELECT id FROM workflows WHERE id = ? AND user_id = ?')
+          .bind(workflowId, user.id)
+          .first();
+        if (!wf) {
+          return jsonResponse({ error: 'Workflow not found' }, 404, request);
+        }
+
+        const rawLimit = parseInt(url.searchParams.get('limit') || '50', 10);
+        const limit = Number.isFinite(rawLimit) ? Math.min(Math.max(rawLimit, 1), 100) : 50;
+        const rows = await env.DB.prepare(
+          'SELECT id, user_id, action, resource_type, resource_id, details, created_at FROM audit_logs WHERE user_id = ? AND resource_type = ? AND resource_id = ? ORDER BY created_at DESC LIMIT ?'
+        )
+          .bind(user.id, 'workflow', workflowId, limit)
+          .all<Record<string, unknown>>();
+
+        const logs = (rows.results || []).map((row) => ({
+          id: String(row.id),
+          user_id: String(row.user_id),
+          action: String(row.action),
+          resource_type: String(row.resource_type),
+          resource_id: String(row.resource_id),
+          details: safeJsonParse(row.details, {}),
+          created_at: String(row.created_at),
+        }));
+
+        return jsonResponse({ success: true, workflowId, count: logs.length, logs }, 200, request);
       }
 
       if (parts[4]) {
@@ -3260,10 +3388,11 @@ export default {
         const finishedAt = new Date().toISOString();
 
         try {
-          await env.DB.prepare(
-            'INSERT INTO workflow_runs (id, workflow_id, status, started_at, finished_at, error_log, logs) VALUES (?, ?, ?, ?, ?, ?, ?)'
-          )
-            .bind(
+          const auditId = randomId('audit');
+          await env.DB.batch([
+            env.DB.prepare(
+              'INSERT INTO workflow_runs (id, workflow_id, status, started_at, finished_at, error_log, logs) VALUES (?, ?, ?, ?, ?, ?, ?)'
+            ).bind(
               replayedRunId,
               workflowId,
               dagResult.ok ? 'success' : 'failed',
@@ -3275,8 +3404,19 @@ export default {
                   ? dagResult.stepTraces
                   : [{ error: dagResult.error, cycleNodes: dagResult.cycleNodes, replayedFrom: runId }]
               )
-            )
-            .run();
+            ),
+            env.DB.prepare(
+              'INSERT INTO audit_logs (id, user_id, action, resource_type, resource_id, details, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+            ).bind(
+              auditId,
+              user.id,
+              'workflow.replay',
+              'workflow',
+              workflowId,
+              JSON.stringify({ replayedFromRunId: runId, newRunId: replayedRunId, ok: dagResult.ok }),
+              finishedAt
+            ),
+          ]);
         } catch {
           // Continue even if run logging fails
         }
@@ -3336,6 +3476,7 @@ export default {
         const settingsStr =
           typeof targetVer.settings === 'string' ? targetVer.settings : JSON.stringify(targetVer.settings || {});
         const restoredFromVersion = Number(targetVer.version);
+        const auditId = randomId('audit');
 
         await env.DB.batch([
           env.DB.prepare('UPDATE workflows SET nodes = ?, edges = ?, settings = ?, updated_at = ? WHERE id = ?').bind(
@@ -3356,6 +3497,17 @@ export default {
             settingsStr,
             user.id,
             `Restored from version ${restoredFromVersion}`,
+            now
+          ),
+          env.DB.prepare(
+            'INSERT INTO audit_logs (id, user_id, action, resource_type, resource_id, details, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+          ).bind(
+            auditId,
+            user.id,
+            'workflow.restore',
+            'workflow',
+            workflowId,
+            JSON.stringify({ versionId, restoredFromVersion, newVersion: nextVer }),
             now
           ),
         ]);
@@ -3547,24 +3699,33 @@ export default {
             ? body.change_summary.trim()
             : `Updated at ${now}`;
 
-        await env.DB.prepare(
-          'UPDATE workflows SET name = ?, description = ?, nodes = ?, edges = ?, settings = ?, is_active = ?, updated_at = ? WHERE id = ?'
-        )
-          .bind(nextName, nextDescription, nodesStr, edgesStr, settingsStr, isActive, now, workflowId)
-          .run();
-
         // Save a version
         const lastVer = (await env.DB.prepare('SELECT MAX(version) as max_v FROM workflow_versions WHERE workflow_id = ?')
           .bind(workflowId)
           .first()) as { max_v: number } | null;
         const nextVer = (lastVer?.max_v || 0) + 1;
         const versionId = randomId('ver');
+        const auditId = randomId('audit');
 
-        await env.DB.prepare(
-          'INSERT INTO workflow_versions (id, workflow_id, version, nodes, edges, settings, created_by, change_summary, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
-        )
-          .bind(versionId, workflowId, nextVer, nodesStr, edgesStr, settingsStr, user.id, changeSummary, now)
-          .run();
+        await env.DB.batch([
+          env.DB.prepare(
+            'UPDATE workflows SET name = ?, description = ?, nodes = ?, edges = ?, settings = ?, is_active = ?, updated_at = ? WHERE id = ?'
+          ).bind(nextName, nextDescription, nodesStr, edgesStr, settingsStr, isActive, now, workflowId),
+          env.DB.prepare(
+            'INSERT INTO workflow_versions (id, workflow_id, version, nodes, edges, settings, created_by, change_summary, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+          ).bind(versionId, workflowId, nextVer, nodesStr, edgesStr, settingsStr, user.id, changeSummary, now),
+          env.DB.prepare(
+            'INSERT INTO audit_logs (id, user_id, action, resource_type, resource_id, details, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+          ).bind(
+            auditId,
+            user.id,
+            'workflow.update',
+            'workflow',
+            workflowId,
+            JSON.stringify({ version: nextVer, changeSummary, name: nextName }),
+            now
+          ),
+        ]);
 
         return jsonResponse({ success: true, version: nextVer, updated_at: now }, 200, request);
       } catch (err: unknown) {
@@ -3586,9 +3747,10 @@ export default {
         return jsonResponse({ error: 'Unauthorized' }, 401, request);
       }
 
-      const existing = (await env.DB.prepare('SELECT id, user_id FROM workflows WHERE id = ?').bind(workflowId).first()) as {
+      const existing = (await env.DB.prepare('SELECT id, user_id, name FROM workflows WHERE id = ?').bind(workflowId).first()) as {
         id: string;
         user_id: string;
+        name: string;
       } | null;
 
       if (!existing) {
@@ -3598,10 +3760,15 @@ export default {
         return jsonResponse({ error: 'Forbidden' }, 403, request);
       }
 
+      const auditId = randomId('audit');
+      const now = new Date().toISOString();
       await env.DB.batch([
         env.DB.prepare('DELETE FROM workflow_versions WHERE workflow_id = ?').bind(workflowId),
         env.DB.prepare('DELETE FROM workflow_runs WHERE workflow_id = ?').bind(workflowId),
         env.DB.prepare('DELETE FROM workflows WHERE id = ?').bind(workflowId),
+        env.DB.prepare(
+          'INSERT INTO audit_logs (id, user_id, action, resource_type, resource_id, details, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+        ).bind(auditId, user.id, 'workflow.delete', 'workflow', workflowId, JSON.stringify({ name: existing.name || '' }), now),
       ]);
       return jsonResponse({ success: true, message: 'Workflow deleted' }, 200, request);
     }
