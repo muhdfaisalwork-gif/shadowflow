@@ -40,20 +40,8 @@ def generate_upsert_sql(post: dict) -> str:
     tags = sql_escape(json.dumps(post.get("tags", [])))
     schema = sql_escape(json.dumps(post.get("schemaJsonLd", {})))
 
-    return f"""INSERT INTO blogs (id, slug, title, excerpt, content, category, published_at, updated_at, reading_time_minutes, author, author_role, target_keyword, tags, schema_json_ld)
-VALUES ({p_id}, {slug}, {title}, {excerpt}, {content}, {category}, {pub_at}, {up_at}, {read_mins}, {author}, {author_role}, {keyword}, {tags}, {schema})
-ON CONFLICT(slug) DO UPDATE SET
-  title=excluded.title,
-  excerpt=excluded.excerpt,
-  content=excluded.content,
-  category=excluded.category,
-  updated_at=excluded.updated_at,
-  reading_time_minutes=excluded.reading_time_minutes,
-  author=excluded.author,
-  author_role=excluded.author_role,
-  target_keyword=excluded.target_keyword,
-  tags=excluded.tags,
-  schema_json_ld=excluded.schema_json_ld;"""
+    return f"""INSERT OR REPLACE INTO blogs (id, slug, title, excerpt, content, category, published_at, updated_at, reading_time_minutes, author, author_role, target_keyword, tags, schema_json_ld)
+VALUES ({p_id}, {slug}, {title}, {excerpt}, {content}, {category}, {pub_at}, {up_at}, {read_mins}, {author}, {author_role}, {keyword}, {tags}, {schema});"""
 
 def sync_blogs_to_d1(remote: bool = True) -> bool:
     if not BLOGS_JSON_PATH.exists():

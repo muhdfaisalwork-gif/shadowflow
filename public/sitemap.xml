@@ -261,4 +261,9 @@
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
   </url>
+  <url>
+    <loc>https://shadowflow.work/blog/cost-and-latency-benchmarks-for-healthcare-patient-triage-and-hl7</loc>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+  </url>
 </urlset>

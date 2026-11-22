@@ -569,7 +569,7 @@ def discover_next_candidate_topic(existing_slugs: set[str]) -> Dict[str, Any]:
             if slug not in existing_slugs:
                 auth = author_roster[len(existing_slugs) % len(author_roster)]
                 return {
-                    "id": f"dyn-{slug[:30]}",
+                    "id": f"dyn-{slug}",
                     "slug": slug,
                     "title": title,
                     "excerpt": f"An architectural engineering guide detailing how to build {subj_title.lower()} with low latency, clear boundaries, and deterministic visual DAG execution.",
