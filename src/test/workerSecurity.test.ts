@@ -84,6 +84,7 @@ function createMockDb(options?: { failHealthCheck?: boolean }): {
   const workflowRuns: StoredWorkflowRun[] = [];
   const workflowVersions: StoredWorkflowVersion[] = [];
   const auditLogs: StoredAuditLog[] = [];
+  const blogs = new Map<string, Record<string, unknown>>();
   const graphMemoryNodes: Array<{ id: string; user_id: string; node_type: string; label: string; data: string }> = [];
   const aiUsageCounts = new Map<string, number>();
   let healthQueries = 0;
@@ -177,6 +178,11 @@ function createMockDb(options?: { failHealthCheck?: boolean }): {
           const key = `${String(args[0])}:${String(args[1])}`;
           const count = aiUsageCounts.get(key);
           return (count !== undefined ? { count } : null) as T | null;
+        }
+        if (query.includes("FROM blogs WHERE slug = ?")) {
+          const slug = String(args[0]);
+          const found = blogs.get(slug);
+          return (found ?? null) as T | null;
         }
         return null;
       },
@@ -329,6 +335,30 @@ function createMockDb(options?: { failHealthCheck?: boolean }): {
               auditLogs.splice(i, 1);
             }
           }
+        } else if (query.startsWith("INSERT INTO blogs")) {
+          const [id, slug, title, excerpt, content, category, published_at, updated_at, reading_time_minutes, author, author_role, target_keyword, tags, schema_json_ld] = args as unknown[];
+          blogs.set(String(slug), {
+            id,
+            slug,
+            title,
+            excerpt,
+            content,
+            category,
+            published_at,
+            publishedAt: published_at,
+            updated_at,
+            updatedAt: updated_at,
+            reading_time_minutes,
+            readingTimeMinutes: reading_time_minutes,
+            author,
+            author_role,
+            authorRole: author_role,
+            target_keyword,
+            targetKeyword: target_keyword,
+            tags,
+            schema_json_ld,
+            schemaJsonLd: schema_json_ld,
+          });
         }
         return { success: true };
       },
@@ -370,6 +400,12 @@ function createMockDb(options?: { failHealthCheck?: boolean }): {
           const results = filtered
             .sort((a, b) => b.created_at.localeCompare(a.created_at))
             .slice(0, limit);
+          return { success: true, results: results as T[] };
+        }
+        if (query.includes("FROM blogs")) {
+          const results = Array.from(blogs.values()).sort((a, b) =>
+            String(b.published_at || "").localeCompare(String(a.published_at || ""))
+          );
           return { success: true, results: results as T[] };
         }
         return { success: true, results: [] };
@@ -2867,5 +2903,79 @@ describe("Worker Backend Security & Contract Suite", () => {
     expect(toolNames).toContain("cancel_workflow_run");
     expect(toolNames).toContain("prune_audit_logs");
     expect(toolNames.length).toBe(20);
+  });
+
+  it("serves /llms.txt, /llms-full.txt, and raw Markdown on /api/blogs/:slug for AI models", async () => {
+    const mock = createMockDb();
+    const env = createEnv(mock.db);
+
+    // Seed a blog post
+    await mock.db
+      .prepare(
+        "INSERT INTO blogs (id, slug, title, excerpt, content, category, published_at, updated_at, reading_time_minutes, author, author_role, target_keyword, tags, schema_json_ld) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+      )
+      .bind(
+        "test-blog-1",
+        "deepseek-reasoner-guide",
+        "DeepSeek Reasoner Production Guide",
+        "Comprehensive guide to reasoning models.",
+        "# DeepSeek Reasoner Production Guide\n\nDetailed technical analysis of reasoning models.",
+        "AI Architecture",
+        "2026-11-22",
+        "2026-11-22",
+        6,
+        "Faisal Muhammad",
+        "Chief AI Architect",
+        "deepseek reasoning",
+        JSON.stringify(["DeepSeek", "AI"]),
+        JSON.stringify({ "@context": "https://schema.org" })
+      )
+      .run();
+
+    // 1. GET /llms.txt
+    const llmsRes = await worker.fetch(new Request("https://shadowflow.work/llms.txt"), env);
+    expect(llmsRes.status).toBe(200);
+    expect(llmsRes.headers.get("content-type")).toContain("text/plain");
+    const llmsText = await llmsRes.text();
+    expect(llmsText).toContain("# ShadowFlow (shadowflow.work)");
+    expect(llmsText).toContain("DeepSeek Reasoner Production Guide");
+    expect(llmsText).toContain("https://shadowflow.work/llms-full.txt");
+
+    // 2. GET /llms-full.txt
+    const fullRes = await worker.fetch(new Request("https://shadowflow.work/llms-full.txt"), env);
+    expect(fullRes.status).toBe(200);
+    expect(fullRes.headers.get("content-type")).toContain("text/plain");
+    const fullText = await fullRes.text();
+    expect(fullText).toContain("# ShadowFlow (shadowflow.work) — Complete Corpus & AI Knowledge Graph");
+    expect(fullText).toContain("DeepSeek Reasoner Production Guide");
+    expect(fullText).toContain("Detailed technical analysis of reasoning models.");
+
+    // 3. GET /api/blogs/:slug with Accept: text/markdown
+    const mdRes = await worker.fetch(
+      new Request("https://shadowflow.work/api/blogs/deepseek-reasoner-guide", {
+        headers: { Accept: "text/markdown" },
+      }),
+      env
+    );
+    expect(mdRes.status).toBe(200);
+    expect(mdRes.headers.get("content-type")).toContain("text/markdown");
+    const mdBody = await mdRes.text();
+    expect(mdBody).toContain("# DeepSeek Reasoner Production Guide");
+    expect(mdBody).toContain("Detailed technical analysis of reasoning models.");
+
+    // 4. GET /api/blogs/:slug.md extension route
+    const extRes = await worker.fetch(new Request("https://shadowflow.work/api/blogs/deepseek-reasoner-guide.md"), env);
+    expect(extRes.status).toBe(200);
+    expect(extRes.headers.get("content-type")).toContain("text/markdown");
+    const extBody = await extRes.text();
+    expect(extBody).toContain("# DeepSeek Reasoner Production Guide");
+
+    // 5. Normal JSON lookup continues to return JSON object
+    const jsonRes = await worker.fetch(new Request("https://shadowflow.work/api/blogs/deepseek-reasoner-guide"), env);
+    expect(jsonRes.status).toBe(200);
+    expect(jsonRes.headers.get("content-type")).toContain("application/json");
+    const jsonBody = (await jsonRes.json()) as { success: boolean; post: { slug: string } };
+    expect(jsonBody.success).toBe(true);
+    expect(jsonBody.post.slug).toBe("deepseek-reasoner-guide");
   });
 });

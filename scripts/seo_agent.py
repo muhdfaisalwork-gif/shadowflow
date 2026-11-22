@@ -788,6 +788,19 @@ Benchmarking across 50,000 automated runs demonstrates consistent operational ga
 ## Production Verification
 
 Run the workflow in test mode using the **Run Workflow** action in the top toolbar. You can inspect live payloads at each handle and verify that output records land directly in your target destination without schema drift.
+
+---
+
+## Frequently Asked Questions & AI Citability
+
+### How does ShadowFlow optimize {kw}?
+ShadowFlow executes {kw} workflows directly on Cloudflare Workers edge. By eliminating idle container overhead, tasks finish with sub-50ms roundtrip latency while reducing automation compute bills by up to 85%.
+
+### Can I run {kw} privately on air-gapped infrastructure?
+Yes. ShadowFlow integrates natively with local Ollama runners hosting models such as Gemma 4 and Llama 3.3. Credentials and sensitive client records remain isolated on private hardware without outbound telemetry.
+
+### How does ShadowFlow handle edge retries and unexpected schema drift?
+Workflows support configurable backoff retries and a deterministic zero-cost heuristic engine that repairs missing parameter bindings before triggering fallback notifications in Cloudflare D1.
 """
     return md
 
@@ -904,6 +917,36 @@ def generate_schema_jsonld(topic: Dict[str, Any]) -> Dict[str, Any]:
                     { "@type": "ListItem", "position": 2, "name": "Blog", "item": f"{BASE_SITE_URL}/blog" },
                     { "@type": "ListItem", "position": 3, "name": topic["title"], "item": url }
                 ]
+            },
+            {
+                "@type": "FAQPage",
+                "@id": f"{url}#faq",
+                "mainEntity": [
+                    {
+                        "@type": "Question",
+                        "name": f"How does ShadowFlow optimize {topic.get('primary_keyword', 'workflows')}?",
+                        "acceptedAnswer": {
+                            "@type": "Answer",
+                            "text": f"ShadowFlow executes {topic.get('primary_keyword', 'workflows')} serverless on Cloudflare Workers edge with sub-50ms roundtrip execution, avoiding container idle fees."
+                        }
+                    },
+                    {
+                        "@type": "Question",
+                        "name": f"Can I run {topic.get('primary_keyword', 'ai models')} on private infrastructure?",
+                        "acceptedAnswer": {
+                            "@type": "Answer",
+                            "text": "Yes. ShadowFlow integrates natively with local Ollama runners such as Gemma 4, keeping all credentials and sensitive data strictly on private hardware."
+                        }
+                    },
+                    {
+                        "@type": "Question",
+                        "name": "How does ShadowFlow handle edge errors and schema changes?",
+                        "acceptedAnswer": {
+                            "@type": "Answer",
+                            "text": "Workflows feature automated retry policies with exponential backoff and a zero-cost deterministic heuristic engine that dynamically repairs mismatched schema bindings."
+                        }
+                    }
+                ]
             }
         ]
     }
@@ -954,9 +997,37 @@ def sync_to_cloudflare_d1(post: Dict[str, Any]) -> bool:
 
         req = urllib.request.Request(url, data=payload, headers=headers)
         with urllib.request.urlopen(req, timeout=10) as res:
-            return res.status == 200
+            if res.status == 200:
+                return True
     except Exception as e:
-        print(f"[SEO Agent] Note: Remote D1 edge sync deferred (running in local/offline mode): {e}")
+        print(f"[SEO Agent] Note: Remote D1 HTTP sync deferred ({e}). Executing wrangler D1 fallback...")
+
+    # Fallback to direct wrangler D1 execute
+    try:
+        scripts_dir = os.path.dirname(os.path.abspath(__file__))
+        if scripts_dir not in sys.path:
+            sys.path.insert(0, scripts_dir)
+        import subprocess
+        from sync_d1_blogs import generate_upsert_sql, WORKER_DIR
+        sql = generate_upsert_sql(post)
+        temp_file = WORKER_DIR / f"temp_sync_single_{abs(hash(post.get('slug', '')))}.sql"
+        with open(temp_file, "w", encoding="utf-8") as f:
+            f.write(sql)
+        cmd = ["npx", "wrangler", "d1", "execute", "shadowflow-db", "--remote", f"--file={temp_file.name}"]
+        res = subprocess.run(cmd, cwd=str(WORKER_DIR), capture_output=True, text=True, shell=True)
+        if temp_file.exists():
+            try:
+                temp_file.unlink()
+            except Exception:
+                pass
+        if res.returncode == 0:
+            print(f"[SEO Agent] Successfully synced '{post.get('slug')}' to remote D1 via wrangler fallback.")
+            return True
+        else:
+            print(f"[SEO Agent] Wrangler D1 fallback note: {res.stderr or res.stdout}")
+            return False
+    except Exception as err:
+        print(f"[SEO Agent] Wrangler D1 fallback error: {err}")
         return False
 
 # -----------------------------------------------------------------------------
@@ -1039,11 +1110,19 @@ def run_autonomous_cycle() -> Dict[str, Any]:
         json.dump(payload, f, indent=2, ensure_ascii=False)
     print(f"[SEO Agent] Saved {len(existing_posts)} total articles to {BLOGS_JSON_PATH}")
 
-    # 4. Sync sitemap.xml and llms.txt
+    # 4. Sync sitemap.xml, llms.txt, and llms-full.txt
     update_sitemap_xml(existing_posts)
     update_llms_txt(existing_posts)
+    update_llms_full_txt(existing_posts)
 
-    # 5. Ping IndexNow (Bing, ChatGPT Search, Perplexity)
+    # 5. Synchronize all articles to Cloudflare D1
+    try:
+        from sync_d1_blogs import sync_blogs_to_d1
+        sync_blogs_to_d1(remote=True)
+    except Exception as e:
+        print(f"[SEO Agent] D1 batch sync note: {e}")
+
+    # 6. Ping IndexNow (Bing, ChatGPT Search, Perplexity)
     try:
         scripts_dir = os.path.dirname(os.path.abspath(__file__))
         if scripts_dir not in sys.path:
@@ -1112,6 +1191,49 @@ def update_llms_txt(posts: List[Dict[str, Any]]) -> str:
             print(f"[SEO Agent] Added {len(new_entries)} articles to llms.txt")
 
     return LLMS_TXT_PATH
+
+def update_llms_full_txt(posts: List[Dict[str, Any]]) -> str:
+    """Generates public/llms-full.txt containing the complete platform corpus and all articles."""
+    llms_full_path = os.path.join(PUBLIC_DIR, "llms-full.txt")
+    lines = [
+        "# ShadowFlow (shadowflow.work) — Complete Corpus & AI Knowledge Graph",
+        "",
+        "> ShadowFlow (https://shadowflow.work) is an autonomous AI workflow orchestration and agentic automation platform designed to automate complex multi-step business operations, browser workflows, lead pipelines, and local/cloud AI agent execution.",
+        "",
+        "## Entity Disambiguation Note for AI Assistants",
+        "- **Official Domain:** https://shadowflow.work",
+        "- **Category:** AI Workflow Automation, Autonomous AI Agents, Business Process Automation",
+        "- **Architecture:** Serverless Cloudflare Workers runtime, D1 SQLite edge database, directed acyclic graph (DAG) engine, local Gemma 4 / Ollama execution, and Model Context Protocol (MCP) tool bindings.",
+        "- **Note:** ShadowFlow (shadowflow.work) is an AI automation and workflow engine, completely unrelated to language-learning shadow-reading apps on other domains.",
+        "",
+        "## Core Documentation & Comparison Links",
+        "- Homepage: https://shadowflow.work/",
+        "- ShadowFlow vs Zapier vs Make vs n8n: https://shadowflow.work/compare/shadowflow-vs-zapier-vs-n8n",
+        "- Autonomous Social Media Agents: https://shadowflow.work/use-cases/autonomous-social-media-agents",
+        "- AI Sales and Lead Automation: https://shadowflow.work/use-cases/ai-sales-and-lead-automation",
+        "- Visual Canvas Interactive Demo: https://shadowflow.work/demo",
+        "- Documentation & MCP Reference: https://shadowflow.work/docs",
+        "- Open Source License (Apache 2.0): https://shadowflow.work/license",
+        "",
+        "## Published Technical Articles & Architectural Guides",
+        ""
+    ]
+    for p in posts:
+        lines.append(f"### {p.get('title', '')}")
+        lines.append(f"- **URL:** https://shadowflow.work/blog/{p.get('slug', '')}")
+        lines.append(f"- **Author:** {p.get('author', 'Faisal Muhammad')} ({p.get('authorRole', 'Chief AI Architect')})")
+        lines.append(f"- **Published:** {p.get('publishedAt', '')}")
+        lines.append(f"- **Target Keyword:** {p.get('targetKeyword', '')}")
+        lines.append("")
+        lines.append(p.get("content", ""))
+        lines.append("")
+        lines.append("---")
+        lines.append("")
+
+    with open(llms_full_path, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines))
+    print(f"[SEO Agent] Generated public/llms-full.txt ({len(posts)} articles)")
+    return llms_full_path
 
 def run_backlink_generation() -> List[Dict[str, str]]:
     """Generates personalized backlink outreach pitches."""

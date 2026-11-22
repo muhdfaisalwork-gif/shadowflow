@@ -29,6 +29,7 @@ DEFAULT_URLS = [
     "https://shadowflow.work/blog",
     "https://shadowflow.work/seo-agent",
     "https://shadowflow.work/llms.txt",
+    "https://shadowflow.work/llms-full.txt",
     "https://shadowflow.work/sitemap.xml"
 ]
 

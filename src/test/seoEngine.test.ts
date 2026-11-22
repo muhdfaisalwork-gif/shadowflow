@@ -214,4 +214,52 @@ Teams run the model locally using Ollama with an average latency of 18ms.
       expect(retrieved?.title).toBe('Test Article on Autonomous Agents');
     });
   });
+
+  describe('Static SEO & AI Agent Discovery Assets', () => {
+    it('ensures public/robots.txt explicitly allows major AI search engines and crawler agents', async () => {
+      const fs = await import('fs');
+      const path = await import('path');
+      const robotsPath = path.resolve(process.cwd(), 'public/robots.txt');
+      expect(fs.existsSync(robotsPath)).toBe(true);
+      const robotsTxt = fs.readFileSync(robotsPath, 'utf-8');
+
+      expect(robotsTxt).toContain('User-agent: OAI-SearchBot');
+      expect(robotsTxt).toContain('User-agent: PerplexityBot');
+      expect(robotsTxt).toContain('User-agent: Claude-SearchBot');
+      expect(robotsTxt).toContain('User-agent: Google-Extended');
+      expect(robotsTxt).toContain('User-agent: Applebot-Extended');
+      expect(robotsTxt).toContain('Allow: /llms.txt');
+      expect(robotsTxt).toContain('Allow: /llms-full.txt');
+      expect(robotsTxt).toContain('Sitemap: https://shadowflow.work/sitemap.xml');
+    });
+
+    it('ensures public/llms-full.txt is generated with full platform corpus and articles', async () => {
+      const fs = await import('fs');
+      const path = await import('path');
+      const llmsFullPath = path.resolve(process.cwd(), 'public/llms-full.txt');
+      expect(fs.existsSync(llmsFullPath)).toBe(true);
+      const content = fs.readFileSync(llmsFullPath, 'utf-8');
+
+      expect(content).toContain('# ShadowFlow (shadowflow.work) — Complete Corpus & AI Knowledge Graph');
+      expect(content).toContain('Entity Disambiguation Note for AI Assistants');
+      expect(content).toContain('https://shadowflow.work/compare/shadowflow-vs-zapier-vs-n8n');
+      expect(content).toContain('Published Technical Articles');
+      expect(content.length).toBeGreaterThan(50000);
+    });
+
+    it('ensures public/blogs.json has synchronized articles with valid metadata', async () => {
+      const fs = await import('fs');
+      const path = await import('path');
+      const blogsJsonPath = path.resolve(process.cwd(), 'public/blogs.json');
+      expect(fs.existsSync(blogsJsonPath)).toBe(true);
+      const data = JSON.parse(fs.readFileSync(blogsJsonPath, 'utf-8'));
+
+      expect(data.totalPosts).toBeGreaterThanOrEqual(30);
+      expect(Array.isArray(data.posts)).toBe(true);
+      const sample = data.posts[0];
+      expect(sample.slug).toBeDefined();
+      expect(sample.title).toBeDefined();
+      expect(sample.content).toBeDefined();
+    });
+  });
 });

@@ -246,4 +246,14 @@
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
   </url>
+  <url>
+    <loc>https://shadowflow.work/blog/how-to-build-healthcare-patient-triage-and-hl7-message-routing-wi</loc>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://shadowflow.work/blog/production-playbook-for-healthcare-patient-triage-and-hl7-message</loc>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+  </url>
 </urlset>

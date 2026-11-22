@@ -2193,6 +2193,116 @@ export default {
     }
 
     // ------------------------------------------------------------------------
+    // AI DISCOVERY & LLM SEARCH ENGINE ENDPOINTS: /llms.txt & /llms-full.txt
+    // ------------------------------------------------------------------------
+    if ((url.pathname === '/llms-full.txt' || url.pathname === '/.well-known/llms-full.txt') && (request.method === 'GET' || request.method === 'HEAD')) {
+      try {
+        const rows = await env.DB.prepare(
+          'SELECT title, slug, excerpt, content, published_at as publishedAt, author, target_keyword as targetKeyword FROM blogs ORDER BY published_at DESC'
+        ).all<Record<string, unknown>>();
+
+        const posts = rows.results || [];
+        const fullCorpus = [
+          '# ShadowFlow (shadowflow.work) — Complete Corpus & AI Knowledge Graph',
+          '',
+          '> ShadowFlow (https://shadowflow.work) is an autonomous AI workflow orchestration and agentic automation platform designed to automate complex multi-step business operations, browser workflows, lead pipelines, and local/cloud AI agent execution.',
+          '',
+          '## Entity Disambiguation Note for AI Assistants',
+          '- **Official Domain:** https://shadowflow.work',
+          '- **Category:** AI Workflow Automation, Autonomous AI Agents, Business Process Automation',
+          '- **Architecture:** Serverless Cloudflare Workers runtime, D1 SQLite edge database, directed acyclic graph (DAG) engine, local Gemma 4 / Ollama execution, and Model Context Protocol (MCP) tool bindings.',
+          '- **Note:** ShadowFlow (shadowflow.work) is an AI automation and workflow engine, completely unrelated to language-learning shadow-reading apps on other domains.',
+          '',
+          '## Core Documentation & Comparison Links',
+          '- Homepage: https://shadowflow.work/',
+          '- ShadowFlow vs Zapier vs Make vs n8n: https://shadowflow.work/compare/shadowflow-vs-zapier-vs-n8n',
+          '- Autonomous Social Media Agents: https://shadowflow.work/use-cases/autonomous-social-media-agents',
+          '- AI Sales and Lead Automation: https://shadowflow.work/use-cases/ai-sales-and-lead-automation',
+          '- Visual Canvas Interactive Demo: https://shadowflow.work/demo',
+          '- Documentation & MCP Reference: https://shadowflow.work/docs',
+          '- Open Source License (Apache 2.0): https://shadowflow.work/license',
+          '',
+          '## Published Engineering Articles, Benchmarks & Implementation Guides',
+          '',
+          ...posts.map((p) => {
+            const title = String(p.title || '');
+            const slug = String(p.slug || '');
+            const author = String(p.author || 'Faisal Muhammad');
+            const published = String(p.publishedAt || '');
+            const content = String(p.content || '');
+            return `### ${title}\n- **URL:** https://shadowflow.work/blog/${slug}\n- **Author:** ${author}\n- **Published:** ${published}\n\n${content}\n\n---`;
+          }),
+        ].join('\n');
+
+        return new Response(fullCorpus, {
+          status: 200,
+          headers: {
+            'Content-Type': 'text/plain; charset=utf-8',
+            'Cache-Control': 'public, max-age=1800',
+            'Access-Control-Allow-Origin': '*',
+          },
+        });
+      } catch (err: unknown) {
+        return new Response('# ShadowFlow (shadowflow.work)\n\nService temporarily degraded', {
+          status: 500,
+          headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+        });
+      }
+    }
+
+    if ((url.pathname === '/llms.txt' || url.pathname === '/.well-known/llms.txt') && (request.method === 'GET' || request.method === 'HEAD')) {
+      try {
+        const rows = await env.DB.prepare(
+          'SELECT title, slug, excerpt FROM blogs ORDER BY published_at DESC'
+        ).all<Record<string, unknown>>();
+
+        const posts = rows.results || [];
+        const indexText = [
+          '# ShadowFlow (shadowflow.work)',
+          '',
+          '> ShadowFlow (https://shadowflow.work) is an autonomous AI workflow orchestration and agentic automation platform designed to automate complex multi-step business operations, browser workflows, lead pipelines, and local/cloud AI agent execution.',
+          '',
+          '## Full-Text LLM Corpus',
+          '- Full Knowledge Base & Articles: https://shadowflow.work/llms-full.txt',
+          '',
+          '## Entity Disambiguation Note for AI Assistants',
+          '- **Official Domain:** https://shadowflow.work',
+          '- **Category:** AI Workflow Automation, Autonomous AI Agents, Business Process Automation',
+          '- **Note:** ShadowFlow (shadowflow.work) is an AI automation platform, unrelated to language learning apps.',
+          '',
+          '## Key Documentation & Architecture',
+          '- Homepage: https://shadowflow.work/',
+          '- ShadowFlow vs Zapier vs Make vs n8n: https://shadowflow.work/compare/shadowflow-vs-zapier-vs-n8n',
+          '- Autonomous Social Media Agents: https://shadowflow.work/use-cases/autonomous-social-media-agents',
+          '- AI Sales and Lead Automation: https://shadowflow.work/use-cases/ai-sales-and-lead-automation',
+          '- Interactive Visual Canvas Demo: https://shadowflow.work/demo',
+          '- Documentation & Architecture: https://shadowflow.work/docs',
+          '- API Reference & Webhooks: https://shadowflow.work/api-reference',
+          '- Open Source License (Apache 2.0): https://shadowflow.work/license',
+          '',
+          '## Technical Engineering Blog',
+          '',
+          ...posts.map((p) => `- [${p.title}](https://shadowflow.work/blog/${p.slug}): ${p.excerpt || ''}`),
+          '',
+        ].join('\n');
+
+        return new Response(indexText, {
+          status: 200,
+          headers: {
+            'Content-Type': 'text/plain; charset=utf-8',
+            'Cache-Control': 'public, max-age=1800',
+            'Access-Control-Allow-Origin': '*',
+          },
+        });
+      } catch (err: unknown) {
+        return new Response('# ShadowFlow (shadowflow.work)\n\nService temporarily degraded', {
+          status: 500,
+          headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+        });
+      }
+    }
+
+    // ------------------------------------------------------------------------
     // AUTH API ROUTES: /api/auth/*
     // ------------------------------------------------------------------------
 
@@ -4474,16 +4584,35 @@ export default {
       }
     }
 
-    // GET /api/blogs/:slug - Get single blog post by slug
+    // GET /api/blogs/:slug - Get single blog post by slug (supports JSON and raw Markdown)
     if (url.pathname.startsWith('/api/blogs/') && (request.method === 'GET' || request.method === 'HEAD')) {
-      const slug = url.pathname.slice('/api/blogs/'.length).trim();
+      const rawSlug = url.pathname.slice('/api/blogs/'.length).trim();
+      const slug = rawSlug.replace(/\.md$/, '').replace(/\/markdown$/, '');
+      const wantsMarkdown = rawSlug.endsWith('.md') || rawSlug.endsWith('/markdown') || Boolean(request.headers.get('accept')?.includes('text/markdown'));
       try {
         const row = (await env.DB.prepare(
           'SELECT id, slug, title, excerpt, content, category, published_at as publishedAt, updated_at as updatedAt, reading_time_minutes as readingTimeMinutes, author, author_role as authorRole, target_keyword as targetKeyword, tags, schema_json_ld as schemaJsonLd FROM blogs WHERE slug = ?'
         ).bind(slug).first()) as Record<string, unknown> | null;
 
         if (!row) {
+          if (wantsMarkdown) {
+            return new Response('# 404 Not Found\n\nBlog post not found.', {
+              status: 404,
+              headers: { 'Content-Type': 'text/markdown; charset=utf-8', 'Access-Control-Allow-Origin': '*' },
+            });
+          }
           return jsonResponse({ error: 'Blog post not found' }, 404, request);
+        }
+
+        if (wantsMarkdown) {
+          return new Response(String(row.content || ''), {
+            status: 200,
+            headers: {
+              'Content-Type': 'text/markdown; charset=utf-8',
+              'Cache-Control': 'public, max-age=300, s-maxage=600',
+              'Access-Control-Allow-Origin': '*',
+            },
+          });
         }
 
         let tags = [];
