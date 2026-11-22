@@ -256,4 +256,9 @@
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
   </url>
+  <url>
+    <loc>https://shadowflow.work/blog/architectural-guide-to-healthcare-patient-triage-and-hl7-message</loc>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+  </url>
 </urlset>
