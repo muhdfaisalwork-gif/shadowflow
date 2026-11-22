@@ -266,4 +266,9 @@
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
   </url>
+  <url>
+    <loc>https://shadowflow.work/blog/step-by-step-implementation-of-healthcare-patient-triage-and-hl7</loc>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+  </url>
 </urlset>
