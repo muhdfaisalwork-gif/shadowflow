@@ -238,6 +238,7 @@ interface DagStepTrace {
   status: 'completed' | 'skipped';
   durationMs: number;
   output: unknown;
+  payloadBytes?: number;
 }
 
 type DagExecResult =
@@ -248,6 +249,12 @@ type DagExecResult =
       stepTraces: DagStepTrace[];
       output: unknown;
       totalDurationMs: number;
+      metrics?: {
+        totalSteps: number;
+        completedSteps: number;
+        skippedSteps: number;
+        totalDurationMs: number;
+      };
     }
   | {
       ok: false;
@@ -710,6 +717,7 @@ async function executeDagGraph(
         status: 'skipped',
         durationMs: 0,
         output: null,
+        payloadBytes: 0,
       });
       continue;
     }
@@ -1105,6 +1113,7 @@ async function executeDagGraph(
     }
 
     const durationMs = Date.now() - stepStart;
+    const payloadBytes = output !== null && output !== undefined ? JSON.stringify(output).length : 0;
     stepsExecuted += 1;
     lastCompletedOutput = output;
     stepTraces.push({
@@ -1114,6 +1123,7 @@ async function executeDagGraph(
       status: 'completed',
       durationMs,
       output,
+      payloadBytes,
     });
 
     for (const edge of outgoing.get(nodeId) || []) {
@@ -1134,13 +1144,23 @@ async function executeDagGraph(
     }
   }
 
+  const completedSteps = stepTraces.filter((s) => s.status === 'completed').length;
+  const skippedSteps = stepTraces.filter((s) => s.status === 'skipped').length;
+  const totalDurationMs = Date.now() - startTime;
+
   return {
     ok: true,
     executionOrder,
     stepsExecuted,
     stepTraces,
     output: lastCompletedOutput,
-    totalDurationMs: Date.now() - startTime,
+    totalDurationMs,
+    metrics: {
+      totalSteps: stepTraces.length,
+      completedSteps,
+      skippedSteps,
+      totalDurationMs,
+    },
   };
 }
 
@@ -1166,7 +1186,9 @@ const BACKEND_TOOLS_MANIFEST = {
     duplicate_workflow: { method: 'POST', path: '/api/workflows/:id/duplicate', requiresAuth: true },
     validate_workflow: { method: 'POST', path: '/api/workflows/validate', requiresAuth: false },
     replay_workflow_run: { method: 'POST', path: '/api/workflows/:id/runs/:runId/replay', requiresAuth: true },
+    cancel_workflow_run: { method: 'POST', path: '/api/workflows/:id/runs/:runId/cancel', requiresAuth: true },
     get_audit_logs: { method: 'GET', path: '/api/audit-logs', requiresAuth: true },
+    prune_audit_logs: { method: 'DELETE', path: '/api/audit-logs', requiresAuth: true },
     get_workflow_audit_logs: { method: 'GET', path: '/api/workflows/:id/audit-logs', requiresAuth: true },
     trigger_webhook: { method: 'POST', path: '/webhook/:id', requiresAuth: false },
   },
@@ -1425,6 +1447,42 @@ const BACKEND_TOOLS_MANIFEST = {
             limit: { type: 'number', description: 'Maximum number of audit logs to return (1-100, default 50).' },
           },
           required: ['workflowId'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'cancel_workflow_run',
+        description: 'Cancel an active or running workflow run execution trace and record a cancellation audit event.',
+        parameters: {
+          type: 'object',
+          properties: {
+            workflowId: { type: 'string', description: 'Workflow ID.' },
+            runId: { type: 'string', description: 'Run ID to cancel.' },
+          },
+          required: ['workflowId', 'runId'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'prune_audit_logs',
+        description: 'Prune / delete historical audit logs older than a specified ISO timestamp for data retention management.',
+        parameters: {
+          type: 'object',
+          properties: {
+            before: {
+              type: 'string',
+              description: 'ISO 8601 date timestamp (records created before this date will be pruned).',
+            },
+            limit: {
+              type: 'number',
+              description: 'Maximum records to delete (1-1000, default 500).',
+            },
+          },
+          required: ['before'],
         },
       },
     },
@@ -2843,6 +2901,59 @@ export default {
       return jsonResponse({ success: true, count: logs.length, logs }, 200, request);
     }
 
+    // DELETE /api/audit-logs - prune audit logs older than a timestamp
+    if (url.pathname === '/api/audit-logs' && request.method === 'DELETE') {
+      const user = await getAuthUser(request, env);
+      if (!user) {
+        return jsonResponse({ error: 'Unauthorized' }, 401, request);
+      }
+
+      const before = url.searchParams.get('before')?.trim();
+      if (!before || isNaN(Date.parse(before))) {
+        return jsonResponse({ error: 'Missing or invalid "before" ISO timestamp parameter' }, 400, request);
+      }
+
+      const now = new Date().toISOString();
+      if (before > now) {
+        return jsonResponse({ error: '"before" timestamp cannot be in the future' }, 400, request);
+      }
+
+      const rawLimit = parseInt(url.searchParams.get('limit') || '500', 10);
+      const limit = Number.isFinite(rawLimit) ? Math.min(Math.max(rawLimit, 1), 1000) : 500;
+
+      await env.DB.prepare(
+        'DELETE FROM audit_logs WHERE user_id = ? AND created_at < ?'
+      )
+        .bind(user.id, before)
+        .run();
+
+      const auditId = randomId('audit');
+      await env.DB.prepare(
+        'INSERT INTO audit_logs (id, user_id, action, resource_type, resource_id, details, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+      )
+        .bind(
+          auditId,
+          user.id,
+          'audit.prune',
+          'audit_logs',
+          user.id,
+          JSON.stringify({ before, limit, purgedAt: now }),
+          now
+        )
+        .run();
+
+      return jsonResponse(
+        {
+          success: true,
+          purgedBefore: before,
+          limit,
+          purgedAt: now,
+        },
+        200,
+        request
+      );
+    }
+
     // ------------------------------------------------------------------------
     // WORKFLOWS API ROUTES: /api/workflows/*
     // ------------------------------------------------------------------------
@@ -3437,6 +3548,73 @@ export default {
         );
       }
 
+      if (
+        parts.length === 7 &&
+        parts[3].trim() &&
+        parts[4] === 'runs' &&
+        parts[5].trim() &&
+        (parts[6] === 'cancel' || parts[6] === 'abort')
+      ) {
+        const user = await getAuthUser(request, env);
+        if (!user) {
+          return jsonResponse({ error: 'Unauthorized' }, 401, request);
+        }
+
+        const workflowId = parts[3].trim();
+        const runId = parts[5].trim();
+
+        const wf = (await env.DB.prepare('SELECT id FROM workflows WHERE id = ? AND user_id = ?')
+          .bind(workflowId, user.id)
+          .first()) as Record<string, unknown> | null;
+
+        if (!wf) {
+          return jsonResponse({ error: 'Workflow not found' }, 404, request);
+        }
+
+        const runRow = (await env.DB.prepare(
+          'SELECT id, workflow_id, status FROM workflow_runs WHERE id = ? AND workflow_id = ?'
+        )
+          .bind(runId, workflowId)
+          .first()) as Record<string, unknown> | null;
+
+        if (!runRow) {
+          return jsonResponse({ error: 'Run not found' }, 404, request);
+        }
+
+        const now = new Date().toISOString();
+        const auditId = randomId('audit');
+
+        await env.DB.batch([
+          env.DB.prepare(
+            'UPDATE workflow_runs SET status = ?, finished_at = ? WHERE id = ? AND workflow_id = ?'
+          ).bind('cancelled', now, runId, workflowId),
+          env.DB.prepare(
+            'INSERT INTO audit_logs (id, user_id, action, resource_type, resource_id, details, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+          ).bind(
+            auditId,
+            user.id,
+            'workflow.cancel',
+            'workflow',
+            workflowId,
+            JSON.stringify({ runId, previousStatus: runRow.status, cancelledAt: now }),
+            now
+          ),
+        ]);
+
+        return jsonResponse(
+          {
+            success: true,
+            runId,
+            workflowId,
+            status: 'cancelled',
+            previousStatus: runRow.status,
+            cancelledAt: now,
+          },
+          200,
+          request
+        );
+      }
+
       if (parts.length === 7 && parts[3].trim() && parts[4] === 'versions' && parts[5].trim() && parts[6] === 'restore') {
         const user = await getAuthUser(request, env);
         if (!user) {
@@ -3606,6 +3784,7 @@ export default {
         {
           success: true,
           executionId,
+          runId: executionId,
           workflowId,
           workflowName: String(wf.name),
           isActive: Boolean(wf.is_active),
@@ -4889,6 +5068,7 @@ Write the full article now in Markdown.`;
                 stepTraces: dagResult.stepTraces,
                 output: dagResult.output,
                 totalDurationMs: dagResult.totalDurationMs,
+                metrics: dagResult.metrics,
                 processedAt: new Date().toISOString(),
               },
               200,

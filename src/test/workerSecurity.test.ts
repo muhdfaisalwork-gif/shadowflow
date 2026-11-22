@@ -164,6 +164,9 @@ function createMockDb(options?: { failHealthCheck?: boolean }): {
         if (
           query.startsWith(
             "SELECT id, workflow_id, status, started_at, finished_at, error_log, logs FROM workflow_runs WHERE id = ? AND workflow_id = ?"
+          ) ||
+          query.startsWith(
+            "SELECT id, workflow_id, status FROM workflow_runs WHERE id = ? AND workflow_id = ?"
           )
         ) {
           const [runId, wfId] = args as string[];
@@ -312,6 +315,20 @@ function createMockDb(options?: { failHealthCheck?: boolean }): {
         } else if (query.startsWith("INSERT INTO audit_logs")) {
           const [id, user_id, action, resource_type, resource_id, details, created_at] = args as string[];
           auditLogs.push({ id, user_id, action, resource_type, resource_id, details, created_at });
+        } else if (query.startsWith("UPDATE workflow_runs SET status = ?, finished_at = ? WHERE id = ? AND workflow_id = ?")) {
+          const [status, finished_at, id, workflow_id] = args as [string, string, string, string];
+          const found = workflowRuns.find((r) => r.id === id && r.workflow_id === workflow_id);
+          if (found) {
+            found.status = status;
+            found.finished_at = finished_at;
+          }
+        } else if (query.startsWith("DELETE FROM audit_logs WHERE user_id = ? AND created_at < ?")) {
+          const [user_id, before] = args as [string, string];
+          for (let i = auditLogs.length - 1; i >= 0; i--) {
+            if (auditLogs[i].user_id === user_id && auditLogs[i].created_at < before) {
+              auditLogs.splice(i, 1);
+            }
+          }
         }
         return { success: true };
       },
@@ -2682,6 +2699,173 @@ describe("Worker Backend Security & Contract Suite", () => {
     const toolNames = manifest.tools.map((t) => t.function.name);
     expect(toolNames).toContain("get_audit_logs");
     expect(toolNames).toContain("get_workflow_audit_logs");
-    expect(toolNames.length).toBe(18);
+    expect(toolNames.length).toBeGreaterThanOrEqual(18);
+  });
+
+  it("profiles DAG execution step latency, cancels workflow runs, and prunes historical audit logs", async () => {
+    const mock = createMockDb();
+    const env = createEnv(mock.db);
+
+    const signupRes = await worker.fetch(
+      new Request("https://shadowflow.work/api/auth/signup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: "ops@example.com", password: "secure-password-123" }),
+      }),
+      env
+    );
+    const { token } = (await signupRes.json()) as { token: string };
+    const authHeaders = { Authorization: `Bearer ${token}` };
+
+    // 1. DAG Execution with step duration and metrics profiling
+    const dagRes = await worker.fetch(
+      new Request("https://shadowflow.work/api/execute", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          nodes: [
+            { id: "step1", type: "log", config: { message: "Starting pipeline" } },
+            { id: "step2", type: "hash", config: { algorithm: "sha256", field: "message" } },
+          ],
+          edges: [{ source: "step1", target: "step2" }],
+          input: { message: "Hello Profiler" },
+        }),
+      }),
+      env
+    );
+    expect(dagRes.status).toBe(200);
+    const dagBody = (await dagRes.json()) as {
+      success: boolean;
+      totalDurationMs: number;
+      metrics: { totalSteps: number; completedSteps: number; skippedSteps: number; totalDurationMs: number };
+      stepTraces: Array<{ nodeId: string; durationMs: number; payloadBytes: number }>;
+    };
+    expect(dagBody.success).toBe(true);
+    expect(dagBody.metrics.totalSteps).toBe(2);
+    expect(dagBody.metrics.completedSteps).toBe(2);
+    expect(dagBody.metrics.skippedSteps).toBe(0);
+    expect(dagBody.stepTraces[0]).toHaveProperty("durationMs");
+    expect(dagBody.stepTraces[0]).toHaveProperty("payloadBytes");
+
+    // 2. Create and execute a workflow to generate a run
+    const createWfRes = await worker.fetch(
+      new Request("https://shadowflow.work/api/workflows", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeaders },
+        body: JSON.stringify({
+          name: "Cancellable Workflow",
+          nodes: [{ id: "n1", type: "log" }],
+          edges: [],
+        }),
+      }),
+      env
+    );
+    expect(createWfRes.status).toBe(201);
+    const { workflow: createdWf } = (await createWfRes.json()) as { workflow: { id: string } };
+
+    const execWfRes = await worker.fetch(
+      new Request(`https://shadowflow.work/api/workflows/${createdWf.id}/execute`, {
+        method: "POST",
+        headers: authHeaders,
+      }),
+      env
+    );
+    expect(execWfRes.status).toBe(200);
+    const execBody = (await execWfRes.json()) as { executionId: string; runId: string };
+    const runId = execBody.runId || execBody.executionId;
+
+    // 3. Cancel the run: POST /api/workflows/:id/runs/:runId/cancel
+    const cancelUnauthorizedRes = await worker.fetch(
+      new Request(`https://shadowflow.work/api/workflows/${createdWf.id}/runs/${runId}/cancel`, {
+        method: "POST",
+      }),
+      env
+    );
+    expect(cancelUnauthorizedRes.status).toBe(401);
+
+    const cancelNotFoundRes = await worker.fetch(
+      new Request(`https://shadowflow.work/api/workflows/${createdWf.id}/runs/non-existent-run/cancel`, {
+        method: "POST",
+        headers: authHeaders,
+      }),
+      env
+    );
+    expect(cancelNotFoundRes.status).toBe(404);
+
+    const cancelRes = await worker.fetch(
+      new Request(`https://shadowflow.work/api/workflows/${createdWf.id}/runs/${runId}/cancel`, {
+        method: "POST",
+        headers: authHeaders,
+      }),
+      env
+    );
+    expect(cancelRes.status).toBe(200);
+    const cancelBody = (await cancelRes.json()) as {
+      success: boolean;
+      status: string;
+      runId: string;
+    };
+    expect(cancelBody.success).toBe(true);
+    expect(cancelBody.status).toBe("cancelled");
+    expect(cancelBody.runId).toBe(runId);
+
+    // Verify cancellation audit log
+    const auditRes = await worker.fetch(
+      new Request(`https://shadowflow.work/api/workflows/${createdWf.id}/audit-logs`, {
+        headers: authHeaders,
+      }),
+      env
+    );
+    const auditBody = (await auditRes.json()) as {
+      logs: Array<{ action: string; details: { runId?: string } }>;
+    };
+    expect(auditBody.logs.some((l) => l.action === "workflow.cancel" && l.details?.runId === runId)).toBe(true);
+
+    // 4. Prune audit logs: DELETE /api/audit-logs
+    const badPruneRes = await worker.fetch(
+      new Request("https://shadowflow.work/api/audit-logs?before=invalid-date", {
+        method: "DELETE",
+        headers: authHeaders,
+      }),
+      env
+    );
+    expect(badPruneRes.status).toBe(400);
+
+    const futureDate = new Date(Date.now() + 86400000).toISOString();
+    const futurePruneRes = await worker.fetch(
+      new Request(`https://shadowflow.work/api/audit-logs?before=${encodeURIComponent(futureDate)}`, {
+        method: "DELETE",
+        headers: authHeaders,
+      }),
+      env
+    );
+    expect(futurePruneRes.status).toBe(400);
+
+    const pruneDate = new Date().toISOString();
+    const pruneRes = await worker.fetch(
+      new Request(`https://shadowflow.work/api/audit-logs?before=${encodeURIComponent(pruneDate)}`, {
+        method: "DELETE",
+        headers: authHeaders,
+      }),
+      env
+    );
+    expect(pruneRes.status).toBe(200);
+    const pruneBody = (await pruneRes.json()) as { success: boolean; purgedBefore: string };
+    expect(pruneBody.success).toBe(true);
+    expect(pruneBody.purgedBefore).toBe(pruneDate);
+
+    // 5. Verify 20 total tool definitions in manifest
+    const manifestRes = await worker.fetch(new Request("https://shadowflow.work/api/backend/tools"), env);
+    expect(manifestRes.status).toBe(200);
+    const manifest = (await manifestRes.json()) as {
+      endpoints: Record<string, unknown>;
+      tools: Array<{ function: { name: string } }>;
+    };
+    expect(manifest.endpoints).toHaveProperty("cancel_workflow_run");
+    expect(manifest.endpoints).toHaveProperty("prune_audit_logs");
+    const toolNames = manifest.tools.map((t) => t.function.name);
+    expect(toolNames).toContain("cancel_workflow_run");
+    expect(toolNames).toContain("prune_audit_logs");
+    expect(toolNames.length).toBe(20);
   });
 });
