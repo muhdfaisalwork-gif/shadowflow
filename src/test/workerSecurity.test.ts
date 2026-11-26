@@ -9,6 +9,56 @@ interface StoredUser {
   password_salt: string;
   display_name: string;
   email_verified: number;
+  created_at?: string;
+}
+
+interface StoredPageView {
+  id: string;
+  path: string;
+  referrer_domain: string;
+  country: string;
+  visitor_hash: string;
+  day: string;
+  created_at: string;
+}
+
+interface StoredDownload {
+  id: string;
+  asset: string;
+  source: string;
+  country: string;
+  referrer_domain: string;
+  day: string;
+  created_at: string;
+}
+
+interface StoredPayment {
+  id: string;
+  provider: string;
+  external_event_id: string;
+  user_id: string | null;
+  plan: string;
+  amount_cents: number;
+  currency: string;
+  status: string;
+  metadata: string;
+  created_at: string;
+}
+
+interface StoredRepoStatsDaily {
+  day: string;
+  repo: string;
+  stars: number;
+  forks: number;
+  watchers: number;
+  open_issues: number;
+  clones_count: number;
+  clones_uniques: number;
+  views_count: number;
+  views_uniques: number;
+  release_downloads: number;
+  top_referrers: string;
+  synced_at: string;
 }
 
 interface StoredTfa {
@@ -73,6 +123,11 @@ function createMockDb(options?: { failHealthCheck?: boolean }): {
   workflowRuns: StoredWorkflowRun[];
   workflowVersions: StoredWorkflowVersion[];
   auditLogs: StoredAuditLog[];
+  pageViews: StoredPageView[];
+  downloads: StoredDownload[];
+  payments: StoredPayment[];
+  repoStatsDaily: Map<string, StoredRepoStatsDaily>;
+  userSubscriptions: Map<string, string>;
   graphMemoryNodes: Array<{ id: string; user_id: string; node_type: string; label: string; data: string }>;
   aiUsageWriteCount: () => number;
   batchCallCount: () => number;
@@ -85,6 +140,11 @@ function createMockDb(options?: { failHealthCheck?: boolean }): {
   const workflowVersions: StoredWorkflowVersion[] = [];
   const auditLogs: StoredAuditLog[] = [];
   const blogs = new Map<string, Record<string, unknown>>();
+  const pageViews: StoredPageView[] = [];
+  const downloads: StoredDownload[] = [];
+  const payments: StoredPayment[] = [];
+  const repoStatsDaily = new Map<string, StoredRepoStatsDaily>();
+  const userSubscriptions = new Map<string, string>();
   const graphMemoryNodes: Array<{ id: string; user_id: string; node_type: string; label: string; data: string }> = [];
   const aiUsageCounts = new Map<string, number>();
   let healthQueries = 0;
@@ -184,6 +244,72 @@ function createMockDb(options?: { failHealthCheck?: boolean }): {
           const found = blogs.get(slug);
           return (found ?? null) as T | null;
         }
+        if (query.startsWith("SELECT id FROM payments WHERE external_event_id = ?")) {
+          const eventId = String(args[0]);
+          const found = payments.find((p) => p.external_event_id === eventId);
+          return (found ? { id: found.id } : null) as T | null;
+        }
+        if (query.includes("FROM page_views WHERE day >= ?") && query.includes("COUNT(DISTINCT visitor_hash)")) {
+          const sinceDay = String(args[0]);
+          const filtered = pageViews.filter((pv) => pv.day >= sinceDay);
+          const uniqueVisitors = new Set(filtered.map((pv) => pv.visitor_hash)).size;
+          const blogViews = filtered.filter((pv) => pv.path.startsWith("/blog")).length;
+          const llmsViews = filtered.filter((pv) => pv.path.startsWith("/llms")).length;
+          return {
+            totalViews: filtered.length,
+            uniqueVisitors,
+            blogViews,
+            llmsViews,
+          } as T;
+        }
+        if (query === "SELECT COUNT(*) as total FROM users") {
+          return { total: users.size } as T;
+        }
+        if (query === "SELECT COUNT(*) as count FROM users WHERE created_at >= ?") {
+          const sinceDay = String(args[0]);
+          const count = Array.from(users.values()).filter((u) => (u.created_at || "") >= sinceDay).length;
+          return { count } as T;
+        }
+        if (query === "SELECT COUNT(*) as total FROM workflows") {
+          return { total: workflows.size } as T;
+        }
+        if (query === "SELECT COUNT(*) as count FROM workflows WHERE created_at >= ?") {
+          const sinceDay = String(args[0]);
+          const count = Array.from(workflows.values()).filter((w) => w.created_at >= sinceDay).length;
+          return { count } as T;
+        }
+        if (query.startsWith("SELECT COALESCE(SUM(count), 0) as total FROM ai_usage WHERE request_date >= ?")) {
+          const sinceDay = String(args[0]);
+          let total = 0;
+          for (const [k, v] of aiUsageCounts.entries()) {
+            const reqDate = k.split(":")[1] || "";
+            if (reqDate >= sinceDay) total += v;
+          }
+          return { total } as T;
+        }
+        if (query === "SELECT COUNT(*) as total FROM blogs") {
+          return { total: blogs.size } as T;
+        }
+        if (query.includes("FROM payments WHERE created_at >= ?") && query.includes("totalRevenueCents")) {
+          const sinceDay = String(args[0]);
+          const succeeded = payments.filter((p) => p.created_at >= sinceDay && p.status === "succeeded");
+          const totalRevenueCents = succeeded.reduce((acc, p) => acc + p.amount_cents, 0);
+          return { totalRevenueCents, succeededCount: succeeded.length } as T;
+        }
+        if (query.includes("FROM repo_stats_daily ORDER BY day DESC LIMIT 1")) {
+          const sorted = Array.from(repoStatsDaily.values()).sort((a, b) => b.day.localeCompare(a.day));
+          return (sorted[0] ?? null) as T | null;
+        }
+        if (query.includes("FROM repo_stats_daily WHERE day >= ?") && query.includes("clonesInRange")) {
+          const sinceDay = String(args[0]);
+          const rows = Array.from(repoStatsDaily.values()).filter((r) => r.day >= sinceDay);
+          return {
+            clonesInRange: rows.reduce((a, r) => a + r.clones_count, 0),
+            uniqueClonersInRange: rows.reduce((a, r) => a + r.clones_uniques, 0),
+            viewsInRange: rows.reduce((a, r) => a + r.views_count, 0),
+            uniqueViewersInRange: rows.reduce((a, r) => a + r.views_uniques, 0),
+          } as T;
+        }
         return null;
       },
       run: async () => {
@@ -196,6 +322,7 @@ function createMockDb(options?: { failHealthCheck?: boolean }): {
             password_salt,
             display_name,
             email_verified: 0,
+            created_at: new Date().toISOString(),
           });
         } else if (query.startsWith("INSERT INTO workflows")) {
           const [id, user_id, name, description, nodes, edges, settings, is_active, created_at, updated_at] = args as [
@@ -359,6 +486,60 @@ function createMockDb(options?: { failHealthCheck?: boolean }): {
             schema_json_ld,
             schemaJsonLd: schema_json_ld,
           });
+        } else if (query.startsWith("INSERT INTO page_views")) {
+          const [id, path, referrer_domain, country, visitor_hash, day, created_at] = args as string[];
+          pageViews.push({ id, path, referrer_domain, country, visitor_hash, day, created_at });
+        } else if (query.startsWith("INSERT INTO downloads")) {
+          const [id, asset, source, country, referrer_domain, day, created_at] = args as string[];
+          downloads.push({ id, asset, source, country, referrer_domain, day, created_at });
+        } else if (query.startsWith("INSERT INTO payments")) {
+          const [id, provider, external_event_id, user_id, plan, amount_cents, currency, status, metadata, created_at] = args as [
+            string,
+            string,
+            string,
+            string | null,
+            string,
+            number,
+            string,
+            string,
+            string,
+            string,
+          ];
+          payments.push({ id, provider, external_event_id, user_id, plan, amount_cents, currency, status, metadata, created_at });
+        } else if (query.startsWith("INSERT OR REPLACE INTO repo_stats_daily")) {
+          const [day, repo, stars, forks, watchers, open_issues, clones_count, clones_uniques, views_count, views_uniques, release_downloads, top_referrers, synced_at] = args as [
+            string,
+            string,
+            number,
+            number,
+            number,
+            number,
+            number,
+            number,
+            number,
+            number,
+            number,
+            string,
+            string,
+          ];
+          repoStatsDaily.set(day, {
+            day,
+            repo,
+            stars,
+            forks,
+            watchers,
+            open_issues,
+            clones_count,
+            clones_uniques,
+            views_count,
+            views_uniques,
+            release_downloads,
+            top_referrers,
+            synced_at,
+          });
+        } else if (query.startsWith("INSERT INTO user_subscriptions")) {
+          const [userId, plan] = args as string[];
+          userSubscriptions.set(userId, plan);
         }
         return { success: true };
       },
@@ -408,6 +589,170 @@ function createMockDb(options?: { failHealthCheck?: boolean }): {
           );
           return { success: true, results: results as T[] };
         }
+        if (query.startsWith("SELECT path, COUNT(*) as views FROM page_views WHERE day >= ? GROUP BY path")) {
+          const sinceDay = String(args[0]);
+          const counts = new Map<string, number>();
+          for (const pv of pageViews) {
+            if (pv.day >= sinceDay) counts.set(pv.path, (counts.get(pv.path) || 0) + 1);
+          }
+          const results = Array.from(counts.entries())
+            .map(([path, views]) => ({ path, views }))
+            .sort((a, b) => b.views - a.views)
+            .slice(0, 10);
+          return { success: true, results: results as T[] };
+        }
+        if (query.includes("FROM page_views WHERE day >= ? AND referrer_domain != ''")) {
+          const sinceDay = String(args[0]);
+          const counts = new Map<string, number>();
+          for (const pv of pageViews) {
+            if (pv.day >= sinceDay && pv.referrer_domain) {
+              counts.set(pv.referrer_domain, (counts.get(pv.referrer_domain) || 0) + 1);
+            }
+          }
+          const results = Array.from(counts.entries())
+            .map(([domain, views]) => ({ domain, views }))
+            .sort((a, b) => b.views - a.views)
+            .slice(0, 10);
+          return { success: true, results: results as T[] };
+        }
+        if (query.startsWith("SELECT country, COUNT(*) as views FROM page_views WHERE day >= ? GROUP BY country")) {
+          const sinceDay = String(args[0]);
+          const counts = new Map<string, number>();
+          for (const pv of pageViews) {
+            if (pv.day >= sinceDay) counts.set(pv.country, (counts.get(pv.country) || 0) + 1);
+          }
+          const results = Array.from(counts.entries())
+            .map(([country, views]) => ({ country, views }))
+            .sort((a, b) => b.views - a.views)
+            .slice(0, 10);
+          return { success: true, results: results as T[] };
+        }
+        if (query.startsWith("SELECT asset, COUNT(*) as count FROM downloads WHERE day >= ? GROUP BY asset")) {
+          const sinceDay = String(args[0]);
+          const counts = new Map<string, number>();
+          for (const dl of downloads) {
+            if (dl.day >= sinceDay) counts.set(dl.asset, (counts.get(dl.asset) || 0) + 1);
+          }
+          const results = Array.from(counts.entries())
+            .map(([asset, count]) => ({ asset, count }))
+            .sort((a, b) => b.count - a.count)
+            .slice(0, 10);
+          return { success: true, results: results as T[] };
+        }
+        if (query === "SELECT status, COUNT(*) as count FROM workflow_runs GROUP BY status") {
+          const counts = new Map<string, number>();
+          for (const r of workflowRuns) {
+            counts.set(r.status, (counts.get(r.status) || 0) + 1);
+          }
+          return {
+            success: true,
+            results: Array.from(counts.entries()).map(([status, count]) => ({ status, count })) as T[],
+          };
+        }
+        if (query === "SELECT plan, COUNT(*) as users FROM user_subscriptions GROUP BY plan") {
+          const counts = new Map<string, number>();
+          for (const plan of userSubscriptions.values()) {
+            counts.set(plan, (counts.get(plan) || 0) + 1);
+          }
+          return {
+            success: true,
+            results: Array.from(counts.entries()).map(([plan, usersCount]) => ({ plan, users: usersCount })) as T[],
+          };
+        }
+        if (query.includes("FROM payments WHERE created_at >= ? ORDER BY created_at DESC")) {
+          const sinceDay = String(args[0]);
+          const results = payments
+            .filter((p) => p.created_at >= sinceDay)
+            .sort((a, b) => b.created_at.localeCompare(a.created_at))
+            .slice(0, 25);
+          return { success: true, results: results as T[] };
+        }
+        if (query.includes("FROM repo_stats_daily WHERE day >= ? ORDER BY day ASC")) {
+          const sinceDay = String(args[0]);
+          const rows = Array.from(repoStatsDaily.values())
+            .filter((r) => r.day >= sinceDay)
+            .sort((a, b) => a.day.localeCompare(b.day));
+          if (query.includes("clones_count as value")) {
+            return { success: true, results: rows.map((r) => ({ day: r.day, value: r.clones_count })) as T[] };
+          }
+          if (query.includes("views_count as value")) {
+            return { success: true, results: rows.map((r) => ({ day: r.day, value: r.views_count })) as T[] };
+          }
+          return { success: true, results: rows as T[] };
+        }
+        if (query.startsWith("SELECT day, COUNT(*) as value FROM page_views WHERE day >= ?")) {
+          const sinceDay = String(args[0]);
+          const counts = new Map<string, number>();
+          for (const pv of pageViews) {
+            if (pv.day >= sinceDay) counts.set(pv.day, (counts.get(pv.day) || 0) + 1);
+          }
+          const results = Array.from(counts.entries())
+            .sort((a, b) => a[0].localeCompare(b[0]))
+            .map(([day, value]) => ({ day, value }));
+          return { success: true, results: results as T[] };
+        }
+        if (query.startsWith("SELECT day, COUNT(DISTINCT visitor_hash) as value FROM page_views WHERE day >= ?")) {
+          const sinceDay = String(args[0]);
+          const byDay = new Map<string, Set<string>>();
+          for (const pv of pageViews) {
+            if (pv.day >= sinceDay) {
+              const s = byDay.get(pv.day) || new Set<string>();
+              s.add(pv.visitor_hash);
+              byDay.set(pv.day, s);
+            }
+          }
+          const results = Array.from(byDay.entries())
+            .sort((a, b) => a[0].localeCompare(b[0]))
+            .map(([day, s]) => ({ day, value: s.size }));
+          return { success: true, results: results as T[] };
+        }
+        if (query.startsWith("SELECT day, COUNT(*) as value FROM downloads WHERE day >= ?")) {
+          const sinceDay = String(args[0]);
+          const counts = new Map<string, number>();
+          for (const dl of downloads) {
+            if (dl.day >= sinceDay) counts.set(dl.day, (counts.get(dl.day) || 0) + 1);
+          }
+          const results = Array.from(counts.entries())
+            .sort((a, b) => a[0].localeCompare(b[0]))
+            .map(([day, value]) => ({ day, value }));
+          return { success: true, results: results as T[] };
+        }
+        if (query.includes("FROM users WHERE substr(created_at, 1, 10) >= ?")) {
+          const sinceDay = String(args[0]);
+          const counts = new Map<string, number>();
+          for (const u of users.values()) {
+            const d = (u.created_at || "").slice(0, 10);
+            if (d >= sinceDay) counts.set(d, (counts.get(d) || 0) + 1);
+          }
+          const results = Array.from(counts.entries())
+            .sort((a, b) => a[0].localeCompare(b[0]))
+            .map(([day, value]) => ({ day, value }));
+          return { success: true, results: results as T[] };
+        }
+        if (query.includes("FROM workflow_runs WHERE substr(started_at, 1, 10) >= ?")) {
+          const sinceDay = String(args[0]);
+          const counts = new Map<string, number>();
+          for (const r of workflowRuns) {
+            const d = r.started_at.slice(0, 10);
+            if (d >= sinceDay) counts.set(d, (counts.get(d) || 0) + 1);
+          }
+          const results = Array.from(counts.entries())
+            .sort((a, b) => a[0].localeCompare(b[0]))
+            .map(([day, value]) => ({ day, value }));
+          return { success: true, results: results as T[] };
+        }
+        if (query.includes("FROM ai_usage WHERE request_date >= ? GROUP BY request_date")) {
+          const sinceDay = String(args[0]);
+          const counts = new Map<string, number>();
+          for (const [k, v] of aiUsageCounts.entries()) {
+            const d = k.split(":")[1] || "";
+            if (d >= sinceDay) counts.set(d, (counts.get(d) || 0) + v);
+          }
+          const results = Array.from(counts.entries())
+            .sort((a, b) => a[0].localeCompare(b[0]))
+            .map(([day, value]) => ({ day, value }));
+          return { success: true, results: results as T[] };
+        }
         return { success: true, results: [] };
       },
     };
@@ -436,6 +781,11 @@ function createMockDb(options?: { failHealthCheck?: boolean }): {
     workflowRuns,
     workflowVersions,
     auditLogs,
+    pageViews,
+    downloads,
+    payments,
+    repoStatsDaily,
+    userSubscriptions,
     graphMemoryNodes,
     aiUsageWriteCount: () => aiUsageWrites,
     batchCallCount: () => batchCalls,
@@ -2899,10 +3249,18 @@ describe("Worker Backend Security & Contract Suite", () => {
     };
     expect(manifest.endpoints).toHaveProperty("cancel_workflow_run");
     expect(manifest.endpoints).toHaveProperty("prune_audit_logs");
+    expect(manifest.endpoints).toHaveProperty("get_admin_stats_summary");
+    expect(manifest.endpoints).toHaveProperty("get_admin_stats_timeseries");
+    expect(manifest.endpoints).toHaveProperty("get_admin_stats_repo");
+    expect(manifest.endpoints).toHaveProperty("get_admin_stats_payments");
     const toolNames = manifest.tools.map((t) => t.function.name);
     expect(toolNames).toContain("cancel_workflow_run");
     expect(toolNames).toContain("prune_audit_logs");
-    expect(toolNames.length).toBe(20);
+    expect(toolNames).toContain("get_admin_stats_summary");
+    expect(toolNames).toContain("get_admin_stats_timeseries");
+    expect(toolNames).toContain("get_admin_stats_repo");
+    expect(toolNames).toContain("get_admin_stats_payments");
+    expect(toolNames.length).toBe(24);
   });
 
   it("serves /llms.txt, /llms-full.txt, and raw Markdown on /api/blogs/:slug for AI models", async () => {
@@ -2977,5 +3335,363 @@ describe("Worker Backend Security & Contract Suite", () => {
     const jsonBody = (await jsonRes.json()) as { success: boolean; post: { slug: string } };
     expect(jsonBody.success).toBe(true);
     expect(jsonBody.post.slug).toBe("deepseek-reasoner-guide");
+  });
+
+  it("tracks cookie-free visits without storing raw IPs, filters bots, and logs asset downloads", async () => {
+    const mock = createMockDb();
+    const env = createEnv(mock.db);
+    const clientIp = "203.0.113.77";
+
+    // 1. Valid page view
+    const trackRes = await worker.fetch(
+      new Request("https://shadowflow.work/api/track", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/130.0",
+          "cf-connecting-ip": clientIp,
+          "CF-IPCountry": "PK",
+        },
+        body: JSON.stringify({ path: "/blog/mcp-guide?utm_source=x", referrer: "https://google.com/search?q=shadowflow" }),
+      }),
+      env
+    );
+    expect(trackRes.status).toBe(201);
+    const trackBody = (await trackRes.json()) as { tracked: boolean; path: string };
+    expect(trackBody.tracked).toBe(true);
+    expect(trackBody.path).toBe("/blog/mcp-guide");
+    expect(mock.pageViews.length).toBe(1);
+    expect(mock.pageViews[0].country).toBe("PK");
+    expect(mock.pageViews[0].referrer_domain).toBe("google.com");
+    expect(JSON.stringify(mock.pageViews[0])).not.toContain(clientIp);
+    expect(mock.pageViews[0].visitor_hash.length).toBe(32);
+
+    // 2. Bot filtering skips D1 write
+    const botRes = await worker.fetch(
+      new Request("https://shadowflow.work/api/track", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "User-Agent": "Googlebot/2.1 (+http://www.google.com/bot.html)",
+        },
+        body: JSON.stringify({ path: "/pricing" }),
+      }),
+      env
+    );
+    expect(botRes.status).toBe(200);
+    const botBody = (await botRes.json()) as { tracked: boolean; reason: string };
+    expect(botBody.tracked).toBe(false);
+    expect(botBody.reason).toBe("bot");
+    expect(mock.pageViews.length).toBe(1);
+
+    // 3. Invalid path and oversized payload rejection
+    const badPathRes = await worker.fetch(
+      new Request("https://shadowflow.work/api/track", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "User-Agent": "Mozilla/5.0" },
+        body: JSON.stringify({ path: "pricing" }),
+      }),
+      env
+    );
+    expect(badPathRes.status).toBe(400);
+
+    const hugeRes = await worker.fetch(
+      new Request("https://shadowflow.work/api/track", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "User-Agent": "Mozilla/5.0" },
+        body: JSON.stringify({ path: "/pricing", referrer: "a".repeat(5000) }),
+      }),
+      env
+    );
+    expect(hugeRes.status).toBe(413);
+
+    // 4. Download logging & 302 redirect + JSON format + traversal guard
+    const dlRes = await worker.fetch(
+      new Request("https://shadowflow.work/download/shadowflow-cli.zip", {
+        headers: { "CF-IPCountry": "PK" },
+      }),
+      env
+    );
+    expect(dlRes.status).toBe(302);
+    expect(dlRes.headers.get("location")).toBe(
+      "https://github.com/muhdfaisalwork-gif/shadowflow/releases/latest/download/shadowflow-cli.zip"
+    );
+    expect(mock.downloads.length).toBe(1);
+
+    const dlJsonRes = await worker.fetch(
+      new Request("https://shadowflow.work/download/shadowflow-desktop.exe?format=json"),
+      env
+    );
+    expect(dlJsonRes.status).toBe(200);
+    const dlJsonBody = (await dlJsonRes.json()) as { asset: string; downloadUrl: string };
+    expect(dlJsonBody.asset).toBe("shadowflow-desktop.exe");
+    expect(mock.downloads.length).toBe(2);
+
+    const badAssetRes = await worker.fetch(
+      new Request("https://shadowflow.work/download/..%2Fetc%2Fpasswd"),
+      env
+    );
+    expect(badAssetRes.status).toBe(400);
+  });
+
+  it("enforces owner-only admin access on /api/admin/stats/*, reports metrics accurately, and never leaks PII", async () => {
+    const mock = createMockDb();
+    const env: Env = {
+      ...createEnv(mock.db),
+      ADMIN_EMAILS: "owner@shadowflow.work",
+    };
+    const secretClientIp = "198.51.100.42";
+
+    // Create owner and non-admin accounts
+    const ownerSignup = await worker.fetch(
+      new Request("https://shadowflow.work/api/auth/signup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: "owner@shadowflow.work", password: "StrongPassword123!", displayName: "Owner" }),
+      }),
+      env
+    );
+    const { token: ownerToken } = (await ownerSignup.json()) as { token: string };
+
+    const userSignup = await worker.fetch(
+      new Request("https://shadowflow.work/api/auth/signup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: "other@example.com", password: "StrongPassword123!", displayName: "Other" }),
+      }),
+      env
+    );
+    const { token: otherToken } = (await userSignup.json()) as { token: string };
+
+    // Seed visit, download, subscription, and repo stats
+    await worker.fetch(
+      new Request("https://shadowflow.work/api/track", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "User-Agent": "Mozilla/5.0",
+          "cf-connecting-ip": secretClientIp,
+          "CF-IPCountry": "PK",
+        },
+        body: JSON.stringify({ path: "/llms-full.txt" }),
+      }),
+      env
+    );
+    await worker.fetch(new Request("https://shadowflow.work/download/shadowflow.zip"), env);
+
+    const today = new Date().toISOString().slice(0, 10);
+    await mock.db
+      .prepare(
+        "INSERT OR REPLACE INTO repo_stats_daily (day, repo, stars, forks, watchers, open_issues, clones_count, clones_uniques, views_count, views_uniques, release_downloads, top_referrers, synced_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+      )
+      .bind(today, "muhdfaisalwork-gif/shadowflow", 12, 3, 5, 1, 90, 22, 140, 60, 0, "[]", new Date().toISOString())
+      .run();
+    mock.userSubscriptions.set("u1", "free");
+
+    // 1. Auth gates: 401 unauthenticated, 403 non-admin
+    const unauthRes = await worker.fetch(new Request("https://shadowflow.work/api/admin/stats/summary"), env);
+    expect(unauthRes.status).toBe(401);
+
+    const nonAdminRes = await worker.fetch(
+      new Request("https://shadowflow.work/api/admin/stats/summary", {
+        headers: { Authorization: `Bearer ${otherToken}` },
+      }),
+      env
+    );
+    expect(nonAdminRes.status).toBe(403);
+
+    // 2. Owner JWT succeeds
+    const summaryRes = await worker.fetch(
+      new Request("https://shadowflow.work/api/admin/stats/summary?range=30d", {
+        headers: { Authorization: `Bearer ${ownerToken}` },
+      }),
+      env
+    );
+    expect(summaryRes.status).toBe(200);
+    const summaryText = await summaryRes.text();
+    expect(summaryText).not.toContain(secretClientIp);
+    expect(summaryText).not.toContain("other@example.com");
+
+    const summary = JSON.parse(summaryText) as {
+      visits: { totalViews: number; uniqueVisitors: number; llmsViews: number };
+      downloads: { directDownloads: number; totalDownloads: number };
+      product: { usersTotal: number };
+      payments: { status: string; note: string; planBreakdown: Array<{ plan: string; users: number }> };
+      repo: { status: string; stars: number; clonesInRange: number; uniqueClonersInRange: number };
+    };
+    expect(summary.visits.totalViews).toBe(1);
+    expect(summary.visits.uniqueVisitors).toBe(1);
+    expect(summary.visits.llmsViews).toBe(1);
+    expect(summary.downloads.directDownloads).toBe(1);
+    expect(summary.product.usersTotal).toBe(2);
+    expect(summary.payments.status).toBe("not_connected");
+    expect(summary.payments.note).toContain("on hold");
+    expect(summary.payments.planBreakdown).toEqual([{ plan: "free", users: 1 }]);
+    expect(summary.repo.status).toBe("synced");
+    expect(summary.repo.stars).toBe(12);
+    expect(summary.repo.clonesInRange).toBe(90);
+
+    // 3. Timeseries, repo, payments endpoints + x-admin-key fallback
+    const tsBadRes = await worker.fetch(
+      new Request("https://shadowflow.work/api/admin/stats/timeseries?metric=unknown", {
+        headers: { "x-admin-key": env.JWT_SECRET! },
+      }),
+      env
+    );
+    expect(tsBadRes.status).toBe(400);
+
+    const tsRes = await worker.fetch(
+      new Request("https://shadowflow.work/api/admin/stats/timeseries?metric=clones&range=7d", {
+        headers: { Authorization: `Bearer ${ownerToken}` },
+      }),
+      env
+    );
+    expect(tsRes.status).toBe(200);
+    const tsBody = (await tsRes.json()) as { metric: string; points: Array<{ day: string; value: number }> };
+    expect(tsBody.metric).toBe("clones");
+    expect(tsBody.points).toEqual([{ day: today, value: 90 }]);
+
+    const repoRes = await worker.fetch(
+      new Request("https://shadowflow.work/api/admin/stats/repo", {
+        headers: { Authorization: `Bearer ${ownerToken}` },
+      }),
+      env
+    );
+    expect(repoRes.status).toBe(200);
+    const repoBody = (await repoRes.json()) as { status: string; latest: { stars: number } };
+    expect(repoBody.status).toBe("synced");
+    expect(repoBody.latest.stars).toBe(12);
+
+    const payStatsRes = await worker.fetch(
+      new Request("https://shadowflow.work/api/admin/stats/payments", {
+        headers: { Authorization: `Bearer ${ownerToken}` },
+      }),
+      env
+    );
+    expect(payStatsRes.status).toBe(200);
+    const payStatsBody = (await payStatsRes.json()) as { status: string; note: string };
+    expect(payStatsBody.status).toBe("not_connected");
+  });
+
+  it("holds /webhook/payments when unconfigured and verifies HMAC signatures + replay/idempotency when configured", async () => {
+    const mock = createMockDb();
+    const unconfiguredEnv = createEnv(mock.db);
+
+    // 1. On hold -> 503 not_connected
+    const holdRes = await worker.fetch(
+      new Request("https://shadowflow.work/webhook/payments", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ eventId: "evt_1" }),
+      }),
+      unconfiguredEnv
+    );
+    expect(holdRes.status).toBe(503);
+    const holdBody = (await holdRes.json()) as { status: string };
+    expect(holdBody.status).toBe("not_connected");
+
+    // 2. Configured webhook verifies signature & timestamp
+    const webhookSecret = "pay-secret-at-least-32-characters-long";
+    const configuredEnv: Env = {
+      ...createEnv(mock.db),
+      ADMIN_EMAILS: "owner@shadowflow.work",
+      PAYMENTS_WEBHOOK_SECRET: webhookSecret,
+      PAYMENTS_PROVIDER: "payfast",
+    };
+
+    const payload = JSON.stringify({
+      eventId: "evt_valid_1",
+      provider: "payfast",
+      plan: "pro",
+      amountCents: 2900,
+      currency: "USD",
+      status: "succeeded",
+    });
+    const nowTs = String(Math.floor(Date.now() / 1000));
+    const validSig = await signWebhookHmac(webhookSecret, `${nowTs}.${payload}`);
+
+    // Forged signature -> 401
+    const forgedRes = await worker.fetch(
+      new Request("https://shadowflow.work/webhook/payments", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Payments-Timestamp": nowTs,
+          "X-Payments-Signature": "0".repeat(64),
+        },
+        body: payload,
+      }),
+      configuredEnv
+    );
+    expect(forgedRes.status).toBe(401);
+
+    // Stale timestamp -> 401
+    const staleTs = String(Math.floor(Date.now() / 1000) - 900);
+    const staleSig = await signWebhookHmac(webhookSecret, `${staleTs}.${payload}`);
+    const staleRes = await worker.fetch(
+      new Request("https://shadowflow.work/webhook/payments", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Payments-Timestamp": staleTs,
+          "X-Payments-Signature": staleSig,
+        },
+        body: payload,
+      }),
+      configuredEnv
+    );
+    expect(staleRes.status).toBe(401);
+
+    // Valid event -> 201
+    const okRes = await worker.fetch(
+      new Request("https://shadowflow.work/webhook/payments", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Payments-Timestamp": nowTs,
+          "X-Payments-Signature": validSig,
+        },
+        body: payload,
+      }),
+      configuredEnv
+    );
+    expect(okRes.status).toBe(201);
+    expect(mock.payments.length).toBe(1);
+
+    // Replayed eventId -> 200 duplicate: true without second row
+    const replayRes = await worker.fetch(
+      new Request("https://shadowflow.work/webhook/payments", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Payments-Timestamp": nowTs,
+          "X-Payments-Signature": validSig,
+        },
+        body: payload,
+      }),
+      configuredEnv
+    );
+    expect(replayRes.status).toBe(200);
+    const replayBody = (await replayRes.json()) as { duplicate: boolean };
+    expect(replayBody.duplicate).toBe(true);
+    expect(mock.payments.length).toBe(1);
+
+    // Admin payments stats shows connected total
+    const payStatsRes = await worker.fetch(
+      new Request("https://shadowflow.work/api/admin/stats/payments", {
+        headers: { "x-admin-key": configuredEnv.JWT_SECRET! },
+      }),
+      configuredEnv
+    );
+    expect(payStatsRes.status).toBe(200);
+    const payStats = (await payStatsRes.json()) as {
+      status: string;
+      provider: string;
+      summary: { totalRevenueCents: number; succeededCount: number };
+    };
+    expect(payStats.status).toBe("connected");
+    expect(payStats.provider).toBe("payfast");
+    expect(payStats.summary.totalRevenueCents).toBe(2900);
+    expect(payStats.summary.succeededCount).toBe(1);
   });
 });

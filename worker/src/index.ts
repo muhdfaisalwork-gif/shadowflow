@@ -31,6 +31,12 @@ export interface Env {
   JWT_SECRET?: string;
   GROQ_API_KEY?: string;
   RESEND_API_KEY?: string;
+  ADMIN_EMAILS?: string;
+  ANALYTICS_SALT?: string;
+  GITHUB_TOKEN?: string;
+  GITHUB_REPO?: string;
+  PAYMENTS_WEBHOOK_SECRET?: string;
+  PAYMENTS_PROVIDER?: string;
   DB: D1Database;
   AI?: {
     run: (model: string, input: Record<string, unknown>) => Promise<unknown>;
@@ -1191,6 +1197,10 @@ const BACKEND_TOOLS_MANIFEST = {
     prune_audit_logs: { method: 'DELETE', path: '/api/audit-logs', requiresAuth: true },
     get_workflow_audit_logs: { method: 'GET', path: '/api/workflows/:id/audit-logs', requiresAuth: true },
     trigger_webhook: { method: 'POST', path: '/webhook/:id', requiresAuth: false },
+    get_admin_stats_summary: { method: 'GET', path: '/api/admin/stats/summary', requiresAuth: true },
+    get_admin_stats_timeseries: { method: 'GET', path: '/api/admin/stats/timeseries', requiresAuth: true },
+    get_admin_stats_repo: { method: 'GET', path: '/api/admin/stats/repo', requiresAuth: true },
+    get_admin_stats_payments: { method: 'GET', path: '/api/admin/stats/payments', requiresAuth: true },
   },
   tools: [
     {
@@ -1498,6 +1508,66 @@ const BACKEND_TOOLS_MANIFEST = {
             payload: { type: 'object' },
           },
           required: ['workflowId'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'get_admin_stats_summary',
+        description: 'Fetch owner-only ShadowFlow progress dashboard summary across visits, downloads, signups, product usage, payments status, and GitHub repo stats.',
+        parameters: {
+          type: 'object',
+          properties: {
+            range: { type: 'string', description: 'Time window: 7d, 30d, or 90d (default 30d).' },
+          },
+          required: [],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'get_admin_stats_timeseries',
+        description: 'Fetch daily time series points for ShadowFlow owner progress charts.',
+        parameters: {
+          type: 'object',
+          properties: {
+            metric: {
+              type: 'string',
+              description: 'Metric name: visits, unique_visitors, downloads, signups, runs, ai_usage, clones, or repo_views.',
+            },
+            range: { type: 'string', description: 'Time window: 7d, 30d, or 90d (default 30d).' },
+          },
+          required: ['metric'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'get_admin_stats_repo',
+        description: 'Fetch synced GitHub repository clones, views, stars, forks, watchers, and release downloads for ShadowFlow.',
+        parameters: {
+          type: 'object',
+          properties: {
+            range: { type: 'string', description: 'Time window: 7d, 30d, or 90d (default 30d).' },
+          },
+          required: [],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'get_admin_stats_payments',
+        description: 'Fetch payment connection status, plan change breakdown, and recorded payment events.',
+        parameters: {
+          type: 'object',
+          properties: {
+            range: { type: 'string', description: 'Time window: 7d, 30d, or 90d (default 30d).' },
+          },
+          required: [],
         },
       },
     },
@@ -2137,7 +2207,413 @@ async function callGroqAI(
 }
 
 // ----------------------------------------------------------------------------
-// Worker Main Fetch Handler
+// Progress Dashboard, Analytics, Downloads, Payments & GitHub Sync Helpers
+// ----------------------------------------------------------------------------
+
+type AdminAuthResult =
+  | { ok: true; adminEmail: string }
+  | { ok: false; status: 401 | 403; error: string };
+
+async function requireAdmin(request: Request, env: Env): Promise<AdminAuthResult> {
+  if (isInternalRequest(request, env, true)) {
+    return { ok: true, adminEmail: 'internal-admin' };
+  }
+  const user = await getAuthUser(request, env);
+  if (!user) {
+    return { ok: false, status: 401, error: 'Authentication required' };
+  }
+  const allowed = (env.ADMIN_EMAILS || '')
+    .split(',')
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean);
+  if (allowed.length === 0 || !allowed.includes(user.email.toLowerCase())) {
+    return { ok: false, status: 403, error: 'Admin access required' };
+  }
+  return { ok: true, adminEmail: user.email };
+}
+
+interface RangeInfo {
+  range: '7d' | '30d' | '90d';
+  days: number;
+  sinceDay: string;
+}
+
+function parseRangeParam(url: URL): RangeInfo {
+  const raw = (url.searchParams.get('range') || '30d').toLowerCase();
+  const range: '7d' | '30d' | '90d' = raw === '7d' || raw === '90d' ? raw : '30d';
+  const days = range === '7d' ? 7 : range === '90d' ? 90 : 30;
+  const sinceMs = Date.now() - (days - 1) * 86400 * 1000;
+  const sinceDay = new Date(sinceMs).toISOString().slice(0, 10);
+  return { range, days, sinceDay };
+}
+
+const BOT_UA_REGEX =
+  /bot|crawler|spider|headless|slurp|bingpreview|lighthouse|pagespeed|uptime|monitor|python-urllib|wget|scrapy/i;
+
+function isBotUserAgent(ua: string): boolean {
+  return BOT_UA_REGEX.test(ua);
+}
+
+function extractReferrerDomain(rawRef: string, selfHost: string): string {
+  const trimmed = rawRef.trim();
+  if (!trimmed) return '';
+  try {
+    const parsed = new URL(trimmed);
+    const host = parsed.hostname.toLowerCase().replace(/^www\./, '');
+    const normalizedSelf = selfHost.toLowerCase().replace(/^www\./, '');
+    if (!host || host === normalizedSelf || host === 'shadowflow.work') {
+      return '';
+    }
+    return host.slice(0, 120);
+  } catch {
+    return '';
+  }
+}
+
+const trackRateLimitBuckets = new Map<string, { count: number; resetAt: number }>();
+
+function checkTrackRateLimit(visitorHash: string): boolean {
+  const now = Date.now();
+  if (trackRateLimitBuckets.size > 5000) {
+    for (const [k, v] of trackRateLimitBuckets.entries()) {
+      if (v.resetAt <= now) trackRateLimitBuckets.delete(k);
+    }
+  }
+  const current = trackRateLimitBuckets.get(visitorHash);
+  if (!current || current.resetAt <= now) {
+    trackRateLimitBuckets.set(visitorHash, { count: 1, resetAt: now + 60_000 });
+    return true;
+  }
+  if (current.count >= 60) {
+    return false;
+  }
+  current.count += 1;
+  return true;
+}
+
+async function fetchGitHubJson<T>(path: string, token: string): Promise<T> {
+  const res = await fetch(`https://api.github.com${path}`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: 'application/vnd.github+json',
+      'User-Agent': 'ShadowFlow-Worker/2.0',
+      'X-GitHub-Api-Version': '2022-11-28',
+    },
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`GitHub API ${path} returned ${res.status}: ${text.slice(0, 200)}`);
+  }
+  return (await res.json()) as T;
+}
+
+async function syncGitHubRepoStats(
+  env: Env
+): Promise<{ ok: true; repo: string; daysSynced: number; snapshot: Record<string, unknown> } | { ok: false; status: number; error: string }> {
+  if (!env.GITHUB_TOKEN) {
+    return { ok: false, status: 503, error: 'GITHUB_TOKEN secret is not configured on Worker' };
+  }
+  const repo = (env.GITHUB_REPO || 'muhdfaisalwork-gif/shadowflow').trim();
+  const [meta, clonesData, viewsData, referrersData, releasesData] = await Promise.all([
+    fetchGitHubJson<Record<string, unknown>>(`/repos/${repo}`, env.GITHUB_TOKEN),
+    fetchGitHubJson<{ count?: number; uniques?: number; clones?: Array<{ timestamp?: string; count?: number; uniques?: number }> }>(
+      `/repos/${repo}/traffic/clones`,
+      env.GITHUB_TOKEN
+    ),
+    fetchGitHubJson<{ count?: number; uniques?: number; views?: Array<{ timestamp?: string; count?: number; uniques?: number }> }>(
+      `/repos/${repo}/traffic/views`,
+      env.GITHUB_TOKEN
+    ),
+    fetchGitHubJson<Array<Record<string, unknown>>>(`/repos/${repo}/traffic/popular/referrers`, env.GITHUB_TOKEN),
+    fetchGitHubJson<Array<{ assets?: Array<{ download_count?: number }> }>>(`/repos/${repo}/releases`, env.GITHUB_TOKEN),
+  ]);
+
+  const stars = Number(meta.stargazers_count || 0);
+  const forks = Number(meta.forks_count || 0);
+  const watchers = Number(meta.subscribers_count ?? meta.watchers_count ?? 0);
+  const openIssues = Number(meta.open_issues_count || 0);
+
+  let releaseDownloads = 0;
+  if (Array.isArray(releasesData)) {
+    for (const rel of releasesData) {
+      for (const asset of rel.assets || []) {
+        releaseDownloads += Number(asset.download_count || 0);
+      }
+    }
+  }
+
+  const referrersJson = JSON.stringify(Array.isArray(referrersData) ? referrersData : []);
+  const daily = new Map<string, { clonesCount: number; clonesUniques: number; viewsCount: number; viewsUniques: number }>();
+
+  for (const c of clonesData.clones || []) {
+    const day = String(c.timestamp || '').slice(0, 10);
+    if (!day) continue;
+    const cur = daily.get(day) || { clonesCount: 0, clonesUniques: 0, viewsCount: 0, viewsUniques: 0 };
+    cur.clonesCount = Number(c.count || 0);
+    cur.clonesUniques = Number(c.uniques || 0);
+    daily.set(day, cur);
+  }
+  for (const v of viewsData.views || []) {
+    const day = String(v.timestamp || '').slice(0, 10);
+    if (!day) continue;
+    const cur = daily.get(day) || { clonesCount: 0, clonesUniques: 0, viewsCount: 0, viewsUniques: 0 };
+    cur.viewsCount = Number(v.count || 0);
+    cur.viewsUniques = Number(v.uniques || 0);
+    daily.set(day, cur);
+  }
+
+  const nowIso = new Date().toISOString();
+  if (daily.size === 0) {
+    daily.set(nowIso.slice(0, 10), { clonesCount: 0, clonesUniques: 0, viewsCount: 0, viewsUniques: 0 });
+  }
+
+  const stmts: D1PreparedStatement[] = [];
+  const sortedDays = Array.from(daily.keys()).sort();
+  for (const day of sortedDays) {
+    const m = daily.get(day)!;
+    stmts.push(
+      env.DB.prepare(
+        `INSERT OR REPLACE INTO repo_stats_daily (day, repo, stars, forks, watchers, open_issues, clones_count, clones_uniques, views_count, views_uniques, release_downloads, top_referrers, synced_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).bind(
+        day,
+        repo,
+        stars,
+        forks,
+        watchers,
+        openIssues,
+        m.clonesCount,
+        m.clonesUniques,
+        m.viewsCount,
+        m.viewsUniques,
+        releaseDownloads,
+        referrersJson,
+        nowIso
+      )
+    );
+  }
+
+  if (stmts.length > 0) {
+    await env.DB.batch(stmts);
+  }
+
+  const latestDay = sortedDays[sortedDays.length - 1];
+  const latestMetrics = daily.get(latestDay)!;
+  return {
+    ok: true,
+    repo,
+    daysSynced: stmts.length,
+    snapshot: {
+      day: latestDay,
+      repo,
+      stars,
+      forks,
+      watchers,
+      openIssues,
+      clonesCount: latestMetrics.clonesCount,
+      clonesUniques: latestMetrics.clonesUniques,
+      viewsCount: latestMetrics.viewsCount,
+      viewsUniques: latestMetrics.viewsUniques,
+      releaseDownloads,
+      syncedAt: nowIso,
+    },
+  };
+}
+
+async function buildAdminSummary(env: Env, rangeInfo: RangeInfo): Promise<Record<string, unknown>> {
+  const { range, days, sinceDay } = rangeInfo;
+  const repoName = (env.GITHUB_REPO || 'muhdfaisalwork-gif/shadowflow').trim();
+  const paymentsConfigured = Boolean(env.PAYMENTS_WEBHOOK_SECRET);
+
+  const [
+    viewsAgg,
+    topPathsRes,
+    topReferrersRes,
+    topCountriesRes,
+    downloadsByAssetRes,
+    usersTotalRow,
+    usersNewRow,
+    workflowsTotalRow,
+    workflowsNewRow,
+    runsByStatusRes,
+    aiUsageRow,
+    blogsTotalRow,
+    planBreakdownRes,
+    paymentsAggRow,
+    repoLatestRow,
+    repoRangeAggRow,
+  ] = await Promise.all([
+    env.DB.prepare(
+      `SELECT COUNT(*) as totalViews, COUNT(DISTINCT visitor_hash) as uniqueVisitors, SUM(CASE WHEN path LIKE '/blog%' THEN 1 ELSE 0 END) as blogViews, SUM(CASE WHEN path LIKE '/llms%' THEN 1 ELSE 0 END) as llmsViews FROM page_views WHERE day >= ?`
+    )
+      .bind(sinceDay)
+      .first<Record<string, unknown>>(),
+    env.DB.prepare('SELECT path, COUNT(*) as views FROM page_views WHERE day >= ? GROUP BY path ORDER BY views DESC LIMIT 10')
+      .bind(sinceDay)
+      .all<Record<string, unknown>>(),
+    env.DB.prepare(
+      `SELECT referrer_domain as domain, COUNT(*) as views FROM page_views WHERE day >= ? AND referrer_domain != '' GROUP BY referrer_domain ORDER BY views DESC LIMIT 10`
+    )
+      .bind(sinceDay)
+      .all<Record<string, unknown>>(),
+    env.DB.prepare('SELECT country, COUNT(*) as views FROM page_views WHERE day >= ? GROUP BY country ORDER BY views DESC LIMIT 10')
+      .bind(sinceDay)
+      .all<Record<string, unknown>>(),
+    env.DB.prepare('SELECT asset, COUNT(*) as count FROM downloads WHERE day >= ? GROUP BY asset ORDER BY count DESC LIMIT 10')
+      .bind(sinceDay)
+      .all<Record<string, unknown>>(),
+    env.DB.prepare('SELECT COUNT(*) as total FROM users').first<Record<string, unknown>>(),
+    env.DB.prepare('SELECT COUNT(*) as count FROM users WHERE created_at >= ?').bind(sinceDay).first<Record<string, unknown>>(),
+    env.DB.prepare('SELECT COUNT(*) as total FROM workflows').first<Record<string, unknown>>(),
+    env.DB.prepare('SELECT COUNT(*) as count FROM workflows WHERE created_at >= ?').bind(sinceDay).first<Record<string, unknown>>(),
+    env.DB.prepare('SELECT status, COUNT(*) as count FROM workflow_runs GROUP BY status').all<Record<string, unknown>>(),
+    env.DB.prepare('SELECT COALESCE(SUM(count), 0) as total FROM ai_usage WHERE request_date >= ?')
+      .bind(sinceDay)
+      .first<Record<string, unknown>>(),
+    env.DB.prepare('SELECT COUNT(*) as total FROM blogs').first<Record<string, unknown>>(),
+    env.DB.prepare('SELECT plan, COUNT(*) as users FROM user_subscriptions GROUP BY plan').all<Record<string, unknown>>(),
+    env.DB.prepare(
+      `SELECT COALESCE(SUM(CASE WHEN status = 'succeeded' THEN amount_cents ELSE 0 END), 0) as totalRevenueCents, SUM(CASE WHEN status = 'succeeded' THEN 1 ELSE 0 END) as succeededCount FROM payments WHERE created_at >= ?`
+    )
+      .bind(sinceDay)
+      .first<Record<string, unknown>>(),
+    env.DB.prepare(
+      'SELECT day, repo, stars, forks, watchers, open_issues, clones_count, clones_uniques, views_count, views_uniques, release_downloads, top_referrers, synced_at FROM repo_stats_daily ORDER BY day DESC LIMIT 1'
+    ).first<Record<string, unknown>>(),
+    env.DB.prepare(
+      'SELECT COALESCE(SUM(clones_count), 0) as clonesInRange, COALESCE(SUM(clones_uniques), 0) as uniqueClonersInRange, COALESCE(SUM(views_count), 0) as viewsInRange, COALESCE(SUM(views_uniques), 0) as uniqueViewersInRange FROM repo_stats_daily WHERE day >= ?'
+    )
+      .bind(sinceDay)
+      .first<Record<string, unknown>>(),
+  ]);
+
+  const byAsset = (downloadsByAssetRes.results || []).map((r) => ({
+    asset: String(r.asset || ''),
+    count: Number(r.count || 0),
+  }));
+  const directDownloads = byAsset.reduce((acc, item) => acc + item.count, 0);
+  const releaseDownloads = Number(repoLatestRow?.release_downloads || 0);
+  const totalDownloads = directDownloads + releaseDownloads;
+
+  const runsByStatus = (runsByStatusRes.results || []).map((r) => ({
+    status: String(r.status || 'unknown'),
+    count: Number(r.count || 0),
+  }));
+  const runsTotal = runsByStatus.reduce((acc, r) => acc + r.count, 0);
+
+  return {
+    range,
+    days,
+    sinceDay,
+    visits: {
+      totalViews: Number(viewsAgg?.totalViews || 0),
+      uniqueVisitors: Number(viewsAgg?.uniqueVisitors || 0),
+      blogViews: Number(viewsAgg?.blogViews || 0),
+      llmsViews: Number(viewsAgg?.llmsViews || 0),
+      topPaths: (topPathsRes.results || []).map((r) => ({
+        path: String(r.path || '/'),
+        views: Number(r.views || 0),
+      })),
+      topReferrers: (topReferrersRes.results || []).map((r) => ({
+        domain: String(r.domain || ''),
+        views: Number(r.views || 0),
+      })),
+      topCountries: (topCountriesRes.results || []).map((r) => ({
+        country: String(r.country || 'XX'),
+        views: Number(r.views || 0),
+      })),
+    },
+    downloads: {
+      directDownloads,
+      releaseDownloads,
+      totalDownloads,
+      byAsset,
+      ...(totalDownloads === 0
+        ? { note: 'No GitHub releases or direct downloads recorded yet.' }
+        : {}),
+    },
+    product: {
+      usersTotal: Number(usersTotalRow?.total || 0),
+      newSignupsInRange: Number(usersNewRow?.count || 0),
+      workflowsTotal: Number(workflowsTotalRow?.total || 0),
+      workflowsCreatedInRange: Number(workflowsNewRow?.count || 0),
+      runsTotal,
+      runsByStatus,
+      aiRequestsInRange: Number(aiUsageRow?.total || 0),
+      blogsPublished: Number(blogsTotalRow?.total || 0),
+    },
+    payments: {
+      status: paymentsConfigured ? 'connected' : 'not_connected',
+      provider: env.PAYMENTS_PROVIDER || (paymentsConfigured ? 'custom' : 'none'),
+      totalRevenueCents: Number(paymentsAggRow?.totalRevenueCents || 0),
+      succeededCount: Number(paymentsAggRow?.succeededCount || 0),
+      planBreakdown: (planBreakdownRes.results || []).map((r) => ({
+        plan: String(r.plan || 'free'),
+        users: Number(r.users || 0),
+      })),
+      note: paymentsConfigured
+        ? 'Payments webhook active.'
+        : 'Payments are on hold until a merchant provider is connected. Plan breakdown reflects user_subscriptions plan changes, not revenue.',
+    },
+    repo: {
+      repo: String(repoLatestRow?.repo || repoName),
+      status: repoLatestRow ? 'synced' : 'not_synced',
+      stars: Number(repoLatestRow?.stars || 0),
+      forks: Number(repoLatestRow?.forks || 0),
+      watchers: Number(repoLatestRow?.watchers || 0),
+      openIssues: Number(repoLatestRow?.open_issues || 0),
+      clonesInRange: Number(repoRangeAggRow?.clonesInRange || 0),
+      uniqueClonersInRange: Number(repoRangeAggRow?.uniqueClonersInRange || 0),
+      viewsInRange: Number(repoRangeAggRow?.viewsInRange || 0),
+      uniqueViewersInRange: Number(repoRangeAggRow?.uniqueViewersInRange || 0),
+      releaseDownloads,
+      syncedAt: repoLatestRow?.synced_at ? String(repoLatestRow.synced_at) : null,
+    },
+  };
+}
+
+const TIMESERIES_SQL: Record<string, string> = {
+  visits: 'SELECT day, COUNT(*) as value FROM page_views WHERE day >= ? GROUP BY day ORDER BY day ASC',
+  unique_visitors: 'SELECT day, COUNT(DISTINCT visitor_hash) as value FROM page_views WHERE day >= ? GROUP BY day ORDER BY day ASC',
+  downloads: 'SELECT day, COUNT(*) as value FROM downloads WHERE day >= ? GROUP BY day ORDER BY day ASC',
+  signups: 'SELECT substr(created_at, 1, 10) as day, COUNT(*) as value FROM users WHERE substr(created_at, 1, 10) >= ? GROUP BY day ORDER BY day ASC',
+  runs: 'SELECT substr(started_at, 1, 10) as day, COUNT(*) as value FROM workflow_runs WHERE substr(started_at, 1, 10) >= ? GROUP BY day ORDER BY day ASC',
+  ai_usage: 'SELECT request_date as day, COALESCE(SUM(count), 0) as value FROM ai_usage WHERE request_date >= ? GROUP BY request_date ORDER BY request_date ASC',
+  clones: 'SELECT day, clones_count as value FROM repo_stats_daily WHERE day >= ? ORDER BY day ASC',
+  repo_views: 'SELECT day, views_count as value FROM repo_stats_daily WHERE day >= ? ORDER BY day ASC',
+};
+
+async function buildAdminTimeseries(
+  env: Env,
+  metric: string,
+  rangeInfo: RangeInfo
+): Promise<{ ok: true; data: Record<string, unknown> } | { ok: false; error: string }> {
+  const query = TIMESERIES_SQL[metric];
+  if (!query) {
+    return {
+      ok: false,
+      error: `Invalid metric '${metric}'. Expected one of: ${Object.keys(TIMESERIES_SQL).join(', ')}`,
+    };
+  }
+  const rows = await env.DB.prepare(query).bind(rangeInfo.sinceDay).all<Record<string, unknown>>();
+  const points = (rows.results || []).map((r) => ({
+    day: String(r.day || ''),
+    value: Number(r.value || 0),
+  }));
+  return {
+    ok: true,
+    data: {
+      metric,
+      range: rangeInfo.range,
+      days: rangeInfo.days,
+      sinceDay: rangeInfo.sinceDay,
+      points,
+    },
+  };
+}
+
+// ----------------------------------------------------------------------------
+// Worker Main Fetch & Scheduled Handlers
 // ----------------------------------------------------------------------------
 
 export default {
@@ -2190,6 +2666,312 @@ export default {
         dbStatus === 'degraded' ? 503 : 200,
         request
       );
+    }
+
+    // ------------------------------------------------------------------------
+    // PROGRESS DASHBOARD: ANALYTICS TRACKING, DOWNLOADS, PAYMENTS & ADMIN STATS
+    // ------------------------------------------------------------------------
+
+    // POST /api/track - Cookie-free, privacy-safe page view counter (no raw IP stored)
+    if (url.pathname === '/api/track') {
+      if (request.method !== 'POST') {
+        return jsonResponse({ error: 'Method Not Allowed', allowed: ['POST', 'OPTIONS'] }, 405, request, {
+          Allow: 'POST, OPTIONS',
+        });
+      }
+      const parsed = await readBoundedJson<{ path?: unknown; referrer?: unknown }>(request, 4096);
+      if (!parsed.ok) {
+        return jsonResponse({ error: parsed.error }, parsed.status, request);
+      }
+
+      const ua = request.headers.get('User-Agent') || '';
+      if (isBotUserAgent(ua)) {
+        return jsonResponse({ tracked: false, reason: 'bot' }, 200, request);
+      }
+
+      const rawPath = typeof parsed.data.path === 'string' ? parsed.data.path.trim() : '';
+      if (!rawPath.startsWith('/') || rawPath.length > 200) {
+        return jsonResponse({ error: 'path must start with / and be at most 200 characters' }, 400, request);
+      }
+      const cleanPath = (rawPath.split(/[?#]/)[0] || '/').slice(0, 200);
+
+      const nowIso = new Date().toISOString();
+      const day = nowIso.slice(0, 10);
+      const clientIp = request.headers.get('cf-connecting-ip') || 'unknown';
+      const salt = env.ANALYTICS_SALT || env.JWT_SECRET || 'shadowflow-salt';
+      const visitorHash = (await sha256Hex(`${day}|${salt}|${clientIp}|${ua}`)).slice(0, 32);
+
+      if (!checkTrackRateLimit(visitorHash)) {
+        return jsonResponse({ error: 'Rate limit exceeded' }, 429, request);
+      }
+
+      const rawReferrer =
+        typeof parsed.data.referrer === 'string' && parsed.data.referrer.trim().length > 0
+          ? parsed.data.referrer
+          : request.headers.get('Referer') || '';
+      const referrerDomain = extractReferrerDomain(rawReferrer, url.hostname);
+      const country = (request.headers.get('CF-IPCountry') || 'XX').slice(0, 8);
+      const id = randomId('pv');
+
+      await env.DB.prepare(
+        'INSERT INTO page_views (id, path, referrer_domain, country, visitor_hash, day, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+      )
+        .bind(id, cleanPath, referrerDomain, country, visitorHash, day, nowIso)
+        .run();
+
+      return jsonResponse({ tracked: true, day, path: cleanPath }, 201, request);
+    }
+
+    // GET /download/:asset - Log download click and redirect to GitHub latest release asset
+    if (url.pathname.startsWith('/download/')) {
+      if (request.method !== 'GET' && request.method !== 'HEAD') {
+        return jsonResponse({ error: 'Method Not Allowed', allowed: ['GET', 'HEAD', 'OPTIONS'] }, 405, request, {
+          Allow: 'GET, HEAD, OPTIONS',
+        });
+      }
+      const rawAsset = url.pathname.slice('/download/'.length).trim();
+      if (!/^[a-zA-Z0-9._-]{1,120}$/.test(rawAsset) || rawAsset.includes('..')) {
+        return jsonResponse({ error: 'Invalid asset name' }, 400, request);
+      }
+
+      const nowIso = new Date().toISOString();
+      const day = nowIso.slice(0, 10);
+      const country = (request.headers.get('CF-IPCountry') || 'XX').slice(0, 8);
+      const referrerDomain = extractReferrerDomain(request.headers.get('Referer') || '', url.hostname);
+      const repo = (env.GITHUB_REPO || 'muhdfaisalwork-gif/shadowflow').trim();
+      const downloadUrl = `https://github.com/${repo}/releases/latest/download/${encodeURIComponent(rawAsset)}`;
+
+      if (request.method === 'GET') {
+        await env.DB.prepare(
+          'INSERT INTO downloads (id, asset, source, country, referrer_domain, day, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+        )
+          .bind(randomId('dl'), rawAsset, 'direct', country, referrerDomain, day, nowIso)
+          .run();
+      }
+
+      if (url.searchParams.get('format') === 'json') {
+        return jsonResponse({ asset: rawAsset, downloadUrl }, 200, request);
+      }
+      return Response.redirect(downloadUrl, 302);
+    }
+
+    // POST /webhook/payments - Provider-agnostic webhook (on hold when PAYMENTS_WEBHOOK_SECRET unset)
+    if (url.pathname === '/webhook/payments') {
+      if (request.method !== 'POST') {
+        return jsonResponse({ error: 'Method Not Allowed', allowed: ['POST', 'OPTIONS'] }, 405, request, {
+          Allow: 'POST, OPTIONS',
+        });
+      }
+      if (!env.PAYMENTS_WEBHOOK_SECRET) {
+        return jsonResponse(
+          {
+            error: 'Payments provider not configured',
+            status: 'not_connected',
+            note: 'Payments are on hold until a merchant provider is connected.',
+          },
+          503,
+          request
+        );
+      }
+
+      const { text: rawBody, tooLarge } = await readBoundedText(request, 64 * 1024);
+      if (tooLarge) {
+        return jsonResponse({ error: 'Payload Too Large: maximum webhook payload is 64KB' }, 413, request);
+      }
+
+      const sigHeader = (request.headers.get('X-Payments-Signature') || '').trim().replace(/^sha256=/i, '').toLowerCase();
+      const rawTs = (request.headers.get('X-Payments-Timestamp') || '').trim();
+      if (!sigHeader || !rawTs) {
+        return jsonResponse({ error: 'Missing X-Payments-Signature or X-Payments-Timestamp header' }, 401, request);
+      }
+
+      const tsSec = Number(rawTs);
+      const nowSec = Math.floor(Date.now() / 1000);
+      if (!Number.isFinite(tsSec) || Math.abs(nowSec - tsSec) > 300) {
+        return jsonResponse({ error: 'Expired or invalid payment webhook timestamp' }, 401, request);
+      }
+
+      const expectedSig = await computeHmacSha256Hex(env.PAYMENTS_WEBHOOK_SECRET, `${rawTs}.${rawBody}`);
+      if (!timingSafeEqual(sigHeader, expectedSig)) {
+        return jsonResponse({ error: 'Invalid payment webhook signature' }, 401, request);
+      }
+
+      let payload: Record<string, unknown>;
+      try {
+        const parsed = JSON.parse(rawBody || '{}');
+        if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+          return jsonResponse({ error: 'Webhook payload must be a JSON object' }, 400, request);
+        }
+        payload = parsed as Record<string, unknown>;
+      } catch {
+        return jsonResponse({ error: 'Invalid JSON payment webhook payload' }, 400, request);
+      }
+
+      const eventId = typeof payload.eventId === 'string' ? payload.eventId.trim() : '';
+      if (!eventId) {
+        return jsonResponse({ error: 'eventId is required' }, 400, request);
+      }
+
+      const existing = (await env.DB.prepare('SELECT id FROM payments WHERE external_event_id = ?').bind(eventId).first()) as {
+        id: string;
+      } | null;
+      if (existing) {
+        return jsonResponse({ received: true, duplicate: true, id: existing.id }, 200, request);
+      }
+
+      const paymentId = randomId('pay');
+      const provider =
+        typeof payload.provider === 'string' && payload.provider.trim()
+          ? payload.provider.trim().slice(0, 64)
+          : env.PAYMENTS_PROVIDER || 'custom';
+      const userId = typeof payload.userId === 'string' && payload.userId.trim() ? payload.userId.trim() : null;
+      const plan = typeof payload.plan === 'string' && payload.plan.trim() ? payload.plan.trim().slice(0, 32) : 'pro';
+      const amountCentsRaw = Number(payload.amountCents ?? 0);
+      const amountCents = Number.isFinite(amountCentsRaw) && amountCentsRaw >= 0 ? Math.round(amountCentsRaw) : 0;
+      const currency =
+        typeof payload.currency === 'string' && payload.currency.trim()
+          ? payload.currency.trim().toUpperCase().slice(0, 8)
+          : 'USD';
+      const status =
+        typeof payload.status === 'string' && payload.status.trim() ? payload.status.trim().slice(0, 32) : 'succeeded';
+      const nowIso = new Date().toISOString();
+
+      await env.DB.prepare(
+        `INSERT INTO payments (id, provider, external_event_id, user_id, plan, amount_cents, currency, status, metadata, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+        .bind(paymentId, provider, eventId, userId, plan, amountCents, currency, status, '{}', nowIso)
+        .run();
+
+      return jsonResponse({ received: true, id: paymentId }, 201, request);
+    }
+
+    // Owner-only Progress Dashboard Stats API: /api/admin/stats/*
+    if (url.pathname.startsWith('/api/admin/stats/')) {
+      const auth = await requireAdmin(request, env);
+      if (!auth.ok) {
+        return jsonResponse({ error: auth.error }, auth.status, request);
+      }
+
+      const rangeInfo = parseRangeParam(url);
+
+      if (url.pathname === '/api/admin/stats/summary' && (request.method === 'GET' || request.method === 'HEAD')) {
+        const summary = await buildAdminSummary(env, rangeInfo);
+        return jsonResponse(summary, 200, request);
+      }
+
+      if (url.pathname === '/api/admin/stats/timeseries' && (request.method === 'GET' || request.method === 'HEAD')) {
+        const metric = (url.searchParams.get('metric') || '').trim();
+        if (!metric) {
+          return jsonResponse({ error: 'metric query parameter is required' }, 400, request);
+        }
+        const series = await buildAdminTimeseries(env, metric, rangeInfo);
+        if (!series.ok) {
+          return jsonResponse({ error: series.error }, 400, request);
+        }
+        return jsonResponse(series.data, 200, request);
+      }
+
+      if (url.pathname === '/api/admin/stats/repo' && (request.method === 'GET' || request.method === 'HEAD')) {
+        const repoName = (env.GITHUB_REPO || 'muhdfaisalwork-gif/shadowflow').trim();
+        const rowsRes = await env.DB.prepare(
+          'SELECT day, repo, stars, forks, watchers, open_issues, clones_count, clones_uniques, views_count, views_uniques, release_downloads, top_referrers, synced_at FROM repo_stats_daily WHERE day >= ? ORDER BY day ASC'
+        )
+          .bind(rangeInfo.sinceDay)
+          .all<Record<string, unknown>>();
+        const history = (rowsRes.results || []).map((r) => ({
+          day: String(r.day || ''),
+          repo: String(r.repo || repoName),
+          stars: Number(r.stars || 0),
+          forks: Number(r.forks || 0),
+          watchers: Number(r.watchers || 0),
+          openIssues: Number(r.open_issues || 0),
+          clonesCount: Number(r.clones_count || 0),
+          clonesUniques: Number(r.clones_uniques || 0),
+          viewsCount: Number(r.views_count || 0),
+          viewsUniques: Number(r.views_uniques || 0),
+          releaseDownloads: Number(r.release_downloads || 0),
+          topReferrers: safeJsonParse<unknown[]>(r.top_referrers, []),
+          syncedAt: r.synced_at ? String(r.synced_at) : null,
+        }));
+        const latest = history.length > 0 ? history[history.length - 1] : null;
+        return jsonResponse(
+          {
+            repo: latest?.repo || repoName,
+            range: rangeInfo.range,
+            days: rangeInfo.days,
+            status: latest ? 'synced' : 'not_synced',
+            latest,
+            history,
+          },
+          200,
+          request
+        );
+      }
+
+      if (url.pathname === '/api/admin/stats/repo/sync' && request.method === 'POST') {
+        try {
+          const syncRes = await syncGitHubRepoStats(env);
+          if (!syncRes.ok) {
+            return jsonResponse({ error: syncRes.error }, syncRes.status, request);
+          }
+          return jsonResponse({ synced: true, ...syncRes }, 200, request);
+        } catch (err: unknown) {
+          const message = err instanceof Error ? err.message : String(err);
+          return jsonResponse({ error: 'GitHub repo sync failed', details: message }, 502, request);
+        }
+      }
+
+      if (url.pathname === '/api/admin/stats/payments' && (request.method === 'GET' || request.method === 'HEAD')) {
+        const paymentsConfigured = Boolean(env.PAYMENTS_WEBHOOK_SECRET);
+        const [aggRow, planRes, recentRes] = await Promise.all([
+          env.DB.prepare(
+            `SELECT COALESCE(SUM(CASE WHEN status = 'succeeded' THEN amount_cents ELSE 0 END), 0) as totalRevenueCents, SUM(CASE WHEN status = 'succeeded' THEN 1 ELSE 0 END) as succeededCount FROM payments WHERE created_at >= ?`
+          )
+            .bind(rangeInfo.sinceDay)
+            .first<Record<string, unknown>>(),
+          env.DB.prepare('SELECT plan, COUNT(*) as users FROM user_subscriptions GROUP BY plan').all<Record<string, unknown>>(),
+          env.DB.prepare(
+            'SELECT id, provider, external_event_id, plan, amount_cents, currency, status, created_at FROM payments WHERE created_at >= ? ORDER BY created_at DESC LIMIT 25'
+          )
+            .bind(rangeInfo.sinceDay)
+            .all<Record<string, unknown>>(),
+        ]);
+
+        return jsonResponse(
+          {
+            range: rangeInfo.range,
+            days: rangeInfo.days,
+            status: paymentsConfigured ? 'connected' : 'not_connected',
+            provider: env.PAYMENTS_PROVIDER || (paymentsConfigured ? 'custom' : 'none'),
+            note: paymentsConfigured
+              ? 'Payments webhook active.'
+              : 'Payments are on hold until a merchant provider is connected. Plan breakdown reflects user_subscriptions plan changes, not revenue.',
+            summary: {
+              totalRevenueCents: Number(aggRow?.totalRevenueCents || 0),
+              succeededCount: Number(aggRow?.succeededCount || 0),
+            },
+            planBreakdown: (planRes.results || []).map((r) => ({
+              plan: String(r.plan || 'free'),
+              users: Number(r.users || 0),
+            })),
+            recentPayments: (recentRes.results || []).map((r) => ({
+              id: String(r.id || ''),
+              provider: String(r.provider || ''),
+              externalEventId: String(r.external_event_id || ''),
+              plan: String(r.plan || 'pro'),
+              amountCents: Number(r.amount_cents || 0),
+              currency: String(r.currency || 'USD'),
+              status: String(r.status || 'succeeded'),
+              createdAt: String(r.created_at || ''),
+            })),
+          },
+          200,
+          request
+        );
+      }
+
+      return jsonResponse({ error: 'Admin stats endpoint not found', path: url.pathname }, 404, request);
     }
 
     // ------------------------------------------------------------------------
@@ -5367,5 +6149,12 @@ Write the full article now in Markdown.`;
       status: originRes.status,
       headers,
     });
+  },
+  async scheduled(_event: unknown, env: Env, ctx: { waitUntil(promise: Promise<unknown>): void }): Promise<void> {
+    ctx.waitUntil(
+      syncGitHubRepoStats(env).catch((err) => {
+        console.error('[Scheduled RepoSync] Failed:', err);
+      })
+    );
   },
 };
