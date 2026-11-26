@@ -67,6 +67,136 @@ export function getStoredUser(): User | null {
   }
 }
 
+export class ApiError extends Error {
+  status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+  }
+}
+
+export type AdminRange = '7d' | '30d' | '90d';
+export type AdminMetric =
+  | 'visits'
+  | 'unique_visitors'
+  | 'downloads'
+  | 'signups'
+  | 'runs'
+  | 'ai_usage'
+  | 'clones'
+  | 'repo_views';
+
+export interface AdminStatsSummary {
+  range: AdminRange;
+  days: number;
+  sinceDay: string;
+  visits: {
+    totalViews: number;
+    uniqueVisitors: number;
+    blogViews: number;
+    llmsViews: number;
+    topPaths: Array<{ path: string; views: number }>;
+    topReferrers: Array<{ domain: string; views: number }>;
+    topCountries: Array<{ country: string; views: number }>;
+  };
+  downloads: {
+    directDownloads: number;
+    releaseDownloads: number;
+    totalDownloads: number;
+    byAsset: Array<{ asset: string; count: number }>;
+    note?: string;
+  };
+  product: {
+    usersTotal: number;
+    newSignupsInRange: number;
+    workflowsTotal: number;
+    workflowsCreatedInRange: number;
+    runsTotal: number;
+    runsByStatus: Array<{ status: string; count: number }>;
+    aiRequestsInRange: number;
+    blogsPublished: number;
+  };
+  payments: {
+    status: 'connected' | 'not_connected';
+    provider: string;
+    totalRevenueCents: number;
+    succeededCount: number;
+    planBreakdown: Array<{ plan: string; users: number }>;
+    note: string;
+  };
+  repo: {
+    repo: string;
+    status: 'synced' | 'not_synced';
+    stars: number;
+    forks: number;
+    watchers: number;
+    openIssues: number;
+    clonesInRange: number;
+    uniqueClonersInRange: number;
+    viewsInRange: number;
+    uniqueViewersInRange: number;
+    releaseDownloads: number;
+    syncedAt: string | null;
+  };
+}
+
+export interface AdminTimeseriesResponse {
+  metric: string;
+  range: AdminRange;
+  days: number;
+  sinceDay: string;
+  points: Array<{ day: string; value: number }>;
+}
+
+export interface AdminRepoSnapshot {
+  day: string;
+  repo: string;
+  stars: number;
+  forks: number;
+  watchers: number;
+  openIssues: number;
+  clonesCount: number;
+  clonesUniques: number;
+  viewsCount: number;
+  viewsUniques: number;
+  releaseDownloads: number;
+  topReferrers: Array<{ referrer?: string; count?: number; uniques?: number }>;
+  syncedAt: string | null;
+}
+
+export interface AdminRepoResponse {
+  repo: string;
+  range: AdminRange;
+  days: number;
+  status: 'synced' | 'not_synced';
+  latest: AdminRepoSnapshot | null;
+  history: AdminRepoSnapshot[];
+}
+
+export interface AdminPaymentsResponse {
+  range: AdminRange;
+  days: number;
+  status: 'connected' | 'not_connected';
+  provider: string;
+  note: string;
+  summary: {
+    totalRevenueCents: number;
+    succeededCount: number;
+  };
+  planBreakdown: Array<{ plan: string; users: number }>;
+  recentPayments: Array<{
+    id: string;
+    provider: string;
+    externalEventId: string;
+    plan: string;
+    amountCents: number;
+    currency: string;
+    status: string;
+    createdAt: string;
+  }>;
+}
+
 async function apiFetch<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
   const token = getAuthToken();
   const headers: Record<string, string> = {
@@ -85,7 +215,7 @@ async function apiFetch<T>(endpoint: string, options: RequestInit = {}): Promise
 
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    throw new Error(data.error || data.details || `Request failed with status ${res.status}`);
+    throw new ApiError(data.error || data.details || `Request failed with status ${res.status}`, res.status);
   }
   return data as T;
 }
@@ -360,5 +490,44 @@ export const d1Api = {
       method: 'POST',
       body: JSON.stringify({ urls }),
     });
+  },
+
+  // Owner Progress Dashboard & Privacy-Safe Tracking
+  async trackPageView(path: string, referrer?: string): Promise<void> {
+    if (!path.startsWith('/') || path.startsWith('/admin')) return;
+    try {
+      await fetch('/api/track', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path, referrer: referrer || '' }),
+        keepalive: true,
+      });
+    } catch {
+      // Ignore tracking errors so navigation is never blocked
+    }
+  },
+
+  async getAdminStatsSummary(range: AdminRange = '30d'): Promise<AdminStatsSummary> {
+    return apiFetch<AdminStatsSummary>(`/api/admin/stats/summary?range=${encodeURIComponent(range)}`);
+  },
+
+  async getAdminStatsTimeseries(metric: AdminMetric, range: AdminRange = '30d'): Promise<AdminTimeseriesResponse> {
+    return apiFetch<AdminTimeseriesResponse>(
+      `/api/admin/stats/timeseries?metric=${encodeURIComponent(metric)}&range=${encodeURIComponent(range)}`
+    );
+  },
+
+  async getAdminStatsRepo(range: AdminRange = '30d'): Promise<AdminRepoResponse> {
+    return apiFetch<AdminRepoResponse>(`/api/admin/stats/repo?range=${encodeURIComponent(range)}`);
+  },
+
+  async syncAdminStatsRepo(): Promise<{ synced: boolean; daysSynced?: number }> {
+    return apiFetch<{ synced: boolean; daysSynced?: number }>('/api/admin/stats/repo/sync', {
+      method: 'POST',
+    });
+  },
+
+  async getAdminStatsPayments(range: AdminRange = '30d'): Promise<AdminPaymentsResponse> {
+    return apiFetch<AdminPaymentsResponse>(`/api/admin/stats/payments?range=${encodeURIComponent(range)}`);
   },
 };
