@@ -17,7 +17,13 @@ export default defineConfig(() => ({
       "@": path.resolve(__dirname, "./src"),
     },
   },
+  esbuild: {
+    drop: ["debugger"],
+    legalComments: "none",
+  },
   build: {
+    sourcemap: false,
+    minify: "esbuild",
     chunkSizeWarningLimit: 1000,
     rollupOptions: {
       output: {

@@ -540,6 +540,10 @@ function createMockDb(options?: { failHealthCheck?: boolean }): {
         } else if (query.startsWith("INSERT INTO user_subscriptions")) {
           const [userId, plan] = args as string[];
           userSubscriptions.set(userId, plan);
+        } else if (query.startsWith("UPDATE users SET email_verified = 1 WHERE id = ?")) {
+          const userId = String(args[0]);
+          const found = users.get(userId);
+          if (found) found.email_verified = 1;
         }
         return { success: true };
       },
@@ -3693,5 +3697,103 @@ describe("Worker Backend Security & Contract Suite", () => {
     expect(payStats.provider).toBe("payfast");
     expect(payStats.summary.totalRevenueCents).toBe(2900);
     expect(payStats.summary.succeededCount).toBe(1);
+  });
+
+  it("handles Google OAuth PKCE flow, rejects forged state, enforces auth rate limits, and sets no-store headers", async () => {
+    const mock = createMockDb();
+    const unconfiguredEnv = createEnv(mock.db);
+
+    // 1. Unconfigured Google OAuth -> 503 with no-store
+    const unconfiguredRes = await worker.fetch(new Request("https://shadowflow.work/api/auth/google"), unconfiguredEnv);
+    expect(unconfiguredRes.status).toBe(503);
+    expect(unconfiguredRes.headers.get("cache-control")).toContain("no-store");
+
+    // 2. Configured Google OAuth redirects to accounts.google.com with PKCE + signed state
+    const oauthEnv: Env = {
+      ...createEnv(mock.db),
+      GOOGLE_CLIENT_ID: "test-google-client-id.apps.googleusercontent.com",
+      GOOGLE_CLIENT_SECRET: "test-google-client-secret",
+    };
+    const startRes = await worker.fetch(
+      new Request("https://shadowflow.work/api/auth/google?redirect=%2Fadmin%2Fprogress"),
+      oauthEnv
+    );
+    expect(startRes.status).toBe(302);
+    expect(startRes.headers.get("cache-control")).toContain("no-store");
+    const authUrl = new URL(startRes.headers.get("location")!);
+    expect(authUrl.origin).toBe("https://accounts.google.com");
+    expect(authUrl.searchParams.get("code_challenge_method")).toBe("S256");
+    const validState = authUrl.searchParams.get("state")!;
+    expect(validState).toContain(".");
+
+    // 3. Forged callback state redirects with #oauth_error=
+    const forgedCb = await worker.fetch(
+      new Request("https://shadowflow.work/api/auth/google/callback?code=abc&state=tampered.0000"),
+      oauthEnv
+    );
+    expect(forgedCb.status).toBe(302);
+    expect(forgedCb.headers.get("location")).toContain("/login#oauth_error=");
+
+    // 4. Valid Google callback exchanges code, upserts D1 user, and redirects with #oauth_token=
+    const origFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const target = String(input);
+      if (target === "https://oauth2.googleapis.com/token") {
+        return new Response(JSON.stringify({ access_token: "goog-access-123" }), { status: 200 });
+      }
+      if (target === "https://openidconnect.googleapis.com/v1/userinfo") {
+        return new Response(
+          JSON.stringify({ email: "faisal.oauth@gmail.com", email_verified: true, name: "Faisal OAuth" }),
+          { status: 200 }
+        );
+      }
+      return new Response("Not Found", { status: 404 });
+    }) as typeof fetch;
+
+    try {
+      const okCb = await worker.fetch(
+        new Request(
+          `https://shadowflow.work/api/auth/google/callback?code=auth-code-1&state=${encodeURIComponent(validState)}`
+        ),
+        oauthEnv
+      );
+      expect(okCb.status).toBe(302);
+      const loc = okCb.headers.get("location")!;
+      expect(loc).toContain("/login#oauth_token=");
+      expect(loc).toContain("redirect=%2Fadmin%2Fprogress");
+      const frag = new URLSearchParams(loc.split("#")[1]);
+      const issuedJwt = frag.get("oauth_token")!;
+      expect(issuedJwt.split(".").length).toBe(3);
+
+      // Verify issued JWT works against /api/auth/me and sets no-store
+      const meRes = await worker.fetch(
+        new Request("https://shadowflow.work/api/auth/me", {
+          headers: { Authorization: `Bearer ${issuedJwt}` },
+        }),
+        oauthEnv
+      );
+      expect(meRes.status).toBe(200);
+      expect(meRes.headers.get("cache-control")).toContain("no-store");
+      const meBody = (await meRes.json()) as { user: { email: string } };
+      expect(meBody.user.email).toBe("faisal.oauth@gmail.com");
+    } finally {
+      globalThis.fetch = origFetch;
+    }
+
+    // 5. Auth login brute-force rate limit triggers 429 on 21st request from same IP
+    const attackerIp = "198.51.100.200";
+    let lastStatus = 200;
+    for (let i = 0; i < 21; i++) {
+      const res = await worker.fetch(
+        new Request("https://shadowflow.work/api/auth/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "cf-connecting-ip": attackerIp },
+          body: JSON.stringify({ email: "nobody@example.com", password: "wrong" }),
+        }),
+        oauthEnv
+      );
+      lastStatus = res.status;
+    }
+    expect(lastStatus).toBe(429);
   });
 });

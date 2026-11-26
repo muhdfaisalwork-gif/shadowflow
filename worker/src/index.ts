@@ -29,6 +29,8 @@ export interface Env {
   APP_NAME: string;
   PAGES_ORIGIN?: string;
   JWT_SECRET?: string;
+  GOOGLE_CLIENT_ID?: string;
+  GOOGLE_CLIENT_SECRET?: string;
   GROQ_API_KEY?: string;
   RESEND_API_KEY?: string;
   ADMIN_EMAILS?: string;
@@ -86,6 +88,15 @@ function jsonResponse(
   extraHeaders?: Record<string, string>
 ): Response {
   const cors = request ? getCorsHeaders(request) : { 'Access-Control-Allow-Origin': '*' };
+  let isSensitiveRoute = false;
+  if (request) {
+    try {
+      const p = new URL(request.url).pathname;
+      isSensitiveRoute = p.startsWith('/api/auth/') || p.startsWith('/api/admin/');
+    } catch {
+      isSensitiveRoute = false;
+    }
+  }
   const body = request?.method === 'HEAD' ? null : JSON.stringify(data, null, 2);
   return new Response(body, {
     status,
@@ -98,6 +109,7 @@ function jsonResponse(
       'X-Robots-Tag': 'noindex, nofollow',
       'Referrer-Policy': 'strict-origin-when-cross-origin',
       'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
+      ...(isSensitiveRoute ? { 'Cache-Control': 'no-store, private' } : {}),
       ...cors,
       ...(extraHeaders || {}),
     },
@@ -2291,6 +2303,65 @@ function checkTrackRateLimit(visitorHash: string): boolean {
   return true;
 }
 
+const authRateLimitBuckets = new Map<string, { count: number; resetAt: number }>();
+
+function checkAuthRateLimit(bucketKey: string | null, maxAttempts: number, windowMs = 15 * 60_000): boolean {
+  if (!bucketKey) return true;
+  const now = Date.now();
+  if (authRateLimitBuckets.size > 5000) {
+    for (const [k, v] of authRateLimitBuckets.entries()) {
+      if (v.resetAt <= now) authRateLimitBuckets.delete(k);
+    }
+  }
+  const current = authRateLimitBuckets.get(bucketKey);
+  if (!current || current.resetAt <= now) {
+    authRateLimitBuckets.set(bucketKey, { count: 1, resetAt: now + windowMs });
+    return true;
+  }
+  if (current.count >= maxAttempts) {
+    return false;
+  }
+  current.count += 1;
+  return true;
+}
+
+function getAuthRateKey(request: Request, env: Env, bucket: string): string | null {
+  const ip = request.headers.get('cf-connecting-ip');
+  if (!ip && env.ENVIRONMENT === 'test') {
+    return null;
+  }
+  return `${bucket}:${ip || 'anonymous'}`;
+}
+
+function isSafeRelativeRedirect(raw: string | null): string {
+  if (!raw) return '/dashboard';
+  const trimmed = raw.trim();
+  if (!trimmed.startsWith('/') || trimmed.startsWith('//') || trimmed.includes('\\')) {
+    return '/dashboard';
+  }
+  return trimmed.slice(0, 200);
+}
+
+function oauthRedirectResponse(targetUrl: string): Response {
+  return new Response(null, {
+    status: 302,
+    headers: {
+      Location: targetUrl,
+      'Cache-Control': 'no-store, private',
+      'Referrer-Policy': 'no-referrer',
+    },
+  });
+}
+
+function oauthErrorRedirect(url: URL, msg: string): Response {
+  return oauthRedirectResponse(`${url.origin}/login#oauth_error=${encodeURIComponent(msg)}`);
+}
+
+async function computePkceChallenge(verifier: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier));
+  return bytesToBase64Url(new Uint8Array(digest));
+}
+
 async function fetchGitHubJson<T>(path: string, token: string): Promise<T> {
   const res = await fetch(`https://api.github.com${path}`, {
     headers: {
@@ -3088,8 +3159,169 @@ export default {
     // AUTH API ROUTES: /api/auth/*
     // ------------------------------------------------------------------------
 
+    // GET /api/auth/google - Start Google OAuth 2.0 + PKCE flow
+    if (url.pathname === '/api/auth/google' && (request.method === 'GET' || request.method === 'HEAD')) {
+      if (!env.GOOGLE_CLIENT_ID || !env.GOOGLE_CLIENT_SECRET || !env.JWT_SECRET) {
+        return jsonResponse(
+          { error: 'Google Sign-In is not configured on the server', status: 'not_configured' },
+          503,
+          request
+        );
+      }
+
+      const codeVerifier = bytesToBase64Url(crypto.getRandomValues(new Uint8Array(32)));
+      const codeChallenge = await computePkceChallenge(codeVerifier);
+      const nonce = bytesToHex(crypto.getRandomValues(new Uint8Array(16)));
+      const redirectPath = isSafeRelativeRedirect(url.searchParams.get('redirect'));
+      const stateJson = JSON.stringify({
+        nonce,
+        codeVerifier,
+        exp: Math.floor(Date.now() / 1000) + 600,
+        redirect: redirectPath,
+      });
+      const encodedState = base64UrlEncode(stateJson);
+      const stateSig = await computeHmacSha256Hex(env.JWT_SECRET, encodedState);
+      const state = `${encodedState}.${stateSig}`;
+
+      const callbackUrl = `${url.origin}/api/auth/google/callback`;
+      const googleAuthUrl = new URL('https://accounts.google.com/o/oauth2/v2/auth');
+      googleAuthUrl.searchParams.set('client_id', env.GOOGLE_CLIENT_ID);
+      googleAuthUrl.searchParams.set('redirect_uri', callbackUrl);
+      googleAuthUrl.searchParams.set('response_type', 'code');
+      googleAuthUrl.searchParams.set('scope', 'openid email profile');
+      googleAuthUrl.searchParams.set('state', state);
+      googleAuthUrl.searchParams.set('code_challenge', codeChallenge);
+      googleAuthUrl.searchParams.set('code_challenge_method', 'S256');
+      googleAuthUrl.searchParams.set('prompt', 'select_account');
+
+      return oauthRedirectResponse(googleAuthUrl.toString());
+    }
+
+    // GET /api/auth/google/callback - Exchange Google auth code for D1 JWT
+    if (url.pathname === '/api/auth/google/callback' && request.method === 'GET') {
+      const oauthErr = url.searchParams.get('error');
+      if (oauthErr) {
+        return oauthErrorRedirect(url, `Google sign-in cancelled or failed (${oauthErr})`);
+      }
+      if (!env.GOOGLE_CLIENT_ID || !env.GOOGLE_CLIENT_SECRET || !env.JWT_SECRET) {
+        return oauthErrorRedirect(url, 'Google Sign-In is not configured on the server');
+      }
+
+      const code = (url.searchParams.get('code') || '').trim();
+      const rawState = (url.searchParams.get('state') || '').trim();
+      if (!code || !rawState.includes('.')) {
+        return oauthErrorRedirect(url, 'Missing or invalid Google sign-in parameters');
+      }
+
+      const dotIdx = rawState.lastIndexOf('.');
+      const encodedState = rawState.slice(0, dotIdx);
+      const providedSig = rawState.slice(dotIdx + 1);
+      const expectedSig = await computeHmacSha256Hex(env.JWT_SECRET, encodedState);
+      if (!timingSafeEqual(providedSig, expectedSig)) {
+        return oauthErrorRedirect(url, 'Invalid Google sign-in state signature');
+      }
+
+      let stateData: { codeVerifier?: string; exp?: number; redirect?: string };
+      try {
+        stateData = JSON.parse(base64UrlDecode(encodedState)) as {
+          codeVerifier?: string;
+          exp?: number;
+          redirect?: string;
+        };
+      } catch {
+        return oauthErrorRedirect(url, 'Malformed Google sign-in state');
+      }
+
+      const nowSec = Math.floor(Date.now() / 1000);
+      if (!stateData.codeVerifier || !stateData.exp || stateData.exp < nowSec) {
+        return oauthErrorRedirect(url, 'Google sign-in session expired. Please try again.');
+      }
+
+      try {
+        const callbackUrl = `${url.origin}/api/auth/google/callback`;
+        const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: new URLSearchParams({
+            code,
+            client_id: env.GOOGLE_CLIENT_ID,
+            client_secret: env.GOOGLE_CLIENT_SECRET,
+            redirect_uri: callbackUrl,
+            grant_type: 'authorization_code',
+            code_verifier: stateData.codeVerifier,
+          }).toString(),
+        });
+
+        if (!tokenRes.ok) {
+          return oauthErrorRedirect(url, 'Failed to exchange Google authorization code');
+        }
+        const tokenData = (await tokenRes.json()) as { access_token?: string };
+        if (!tokenData.access_token) {
+          return oauthErrorRedirect(url, 'Google did not return an access token');
+        }
+
+        const profileRes = await fetch('https://openidconnect.googleapis.com/v1/userinfo', {
+          headers: { Authorization: `Bearer ${tokenData.access_token}` },
+        });
+        if (!profileRes.ok) {
+          return oauthErrorRedirect(url, 'Unable to read Google profile');
+        }
+        const profile = (await profileRes.json()) as {
+          email?: string;
+          email_verified?: boolean;
+          name?: string;
+        };
+
+        const email = typeof profile.email === 'string' ? profile.email.trim().toLowerCase() : '';
+        if (!email || profile.email_verified !== true) {
+          return oauthErrorRedirect(url, 'A verified Google email address is required');
+        }
+
+        const existing = (await env.DB.prepare(
+          'SELECT id, email, password_hash, password_salt, display_name FROM users WHERE email = ?'
+        )
+          .bind(email)
+          .first()) as { id: string; email: string; display_name: string } | null;
+
+        let userPayload: UserPayload;
+        if (existing) {
+          await env.DB.prepare('UPDATE users SET email_verified = 1 WHERE id = ?').bind(existing.id).run();
+          userPayload = {
+            id: existing.id,
+            email: existing.email,
+            display_name: existing.display_name || profile.name || email.split('@')[0],
+          };
+        } else {
+          const userId = crypto.randomUUID();
+          const displayName = (typeof profile.name === 'string' ? profile.name.trim() : '') || email.split('@')[0] || 'User';
+          const randomSecret = bytesToHex(crypto.getRandomValues(new Uint8Array(32)));
+          const { hash, salt } = await hashPassword(randomSecret);
+          const nowIso = new Date().toISOString();
+
+          await env.DB.prepare(
+            'INSERT INTO users (id, email, password_hash, password_salt, display_name, created_at, updated_at, email_verified) VALUES (?, ?, ?, ?, ?, ?, ?, 1)'
+          )
+            .bind(userId, email, hash, salt, displayName, nowIso, nowIso)
+            .run();
+
+          userPayload = { id: userId, email, display_name: displayName };
+        }
+
+        const jwt = await createJWT(userPayload as unknown as Record<string, unknown>, env.JWT_SECRET);
+        const safeDest = isSafeRelativeRedirect(stateData.redirect || null);
+        return oauthRedirectResponse(
+          `${url.origin}/login#oauth_token=${encodeURIComponent(jwt)}&redirect=${encodeURIComponent(safeDest)}`
+        );
+      } catch {
+        return oauthErrorRedirect(url, 'Unexpected error completing Google Sign-In');
+      }
+    }
+
     // POST /api/auth/signup
     if (url.pathname === '/api/auth/signup' && request.method === 'POST') {
+      if (!checkAuthRateLimit(getAuthRateKey(request, env, 'auth-signup'), 10)) {
+        return jsonResponse({ error: 'Too many signup attempts. Please wait and try again.' }, 429, request);
+      }
       const parsed = await readBoundedJson<Record<string, unknown>>(request, 16 * 1024);
       if (!parsed.ok) {
         return jsonResponse({ error: parsed.error }, parsed.status, request);
@@ -3153,6 +3385,9 @@ export default {
 
     // POST /api/auth/login
     if (url.pathname === '/api/auth/login' && request.method === 'POST') {
+      if (!checkAuthRateLimit(getAuthRateKey(request, env, 'auth-login'), 20)) {
+        return jsonResponse({ error: 'Too many login attempts. Please wait and try again.' }, 429, request);
+      }
       const parsed = await readBoundedJson<Record<string, unknown>>(request, 16 * 1024);
       if (!parsed.ok) {
         return jsonResponse({ error: parsed.error }, parsed.status, request);
@@ -3286,6 +3521,9 @@ export default {
 
     // POST /api/auth/login/2fa - Complete 2FA login challenge
     if (url.pathname === '/api/auth/login/2fa' && request.method === 'POST') {
+      if (!checkAuthRateLimit(getAuthRateKey(request, env, 'auth-2fa'), 10)) {
+        return jsonResponse({ error: 'Too many 2FA attempts. Please wait and try again.' }, 429, request);
+      }
       const parsed = await readBoundedJson<Record<string, unknown>>(request, 16 * 1024);
       if (!parsed.ok) {
         return jsonResponse({ error: parsed.error }, parsed.status, request);
@@ -6135,6 +6373,11 @@ Write the full article now in Markdown.`;
       headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
       headers.set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains; preload');
       headers.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+      headers.set('Cross-Origin-Opener-Policy', 'same-origin-allow-popups');
+      headers.set(
+        'Content-Security-Policy',
+        "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: https: blob:; media-src 'self' blob:; connect-src 'self' https://*.supabase.co https://shadowflow.work https://api.github.com http://127.0.0.1:11434 http://localhost:11434; frame-ancestors 'self'; base-uri 'self'; form-action 'self' https://accounts.google.com"
+      );
       return new Response(html, {
         status: 200,
         headers,

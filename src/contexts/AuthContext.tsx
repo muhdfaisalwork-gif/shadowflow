@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { d1Api } from '@/lib/api';
 import type { Session } from '@supabase/supabase-js';
@@ -26,6 +26,7 @@ interface AuthContextType {
   signUp: (email: string, password: string, displayName?: string) => Promise<{ error: Error | null }>;
   signIn: (email: string, password: string, tfaCode?: string) => Promise<SignInResult>;
   complete2FA: (tempToken: string, code: string) => Promise<{ error: Error | null }>;
+  refreshSession: () => Promise<AppUser | null>;
   signOut: () => Promise<void>;
 }
 
@@ -196,6 +197,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const refreshSession = useCallback(async (): Promise<AppUser | null> => {
+    const d1User = await d1Api.getMe();
+    if (d1User) {
+      const nextUser: AppUser = {
+        id: d1User.id,
+        email: d1User.email,
+        display_name: d1User.display_name,
+        user_metadata: { display_name: d1User.display_name },
+      };
+      setUser(nextUser);
+      return nextUser;
+    }
+    return null;
+  }, []);
+
   const signOut = async () => {
     await d1Api.logout();
     try {
@@ -208,7 +224,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, session, isLoading, signUp, signIn, complete2FA, signOut }}>
+    <AuthContext.Provider value={{ user, session, isLoading, signUp, signIn, complete2FA, refreshSession, signOut }}>
       {children}
     </AuthContext.Provider>
   );

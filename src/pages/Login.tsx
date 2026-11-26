@@ -1,5 +1,5 @@
-import { type FC, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { type FC, useEffect, useState } from 'react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Zap, Mail, Lock, Loader2, ArrowLeft, Shield, KeyRound } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -8,9 +8,8 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader } from '@/components/ui/card';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
-import { supabase } from '@/integrations/supabase/client';
 import { Separator } from '@/components/ui/separator';
-import { d1Api } from '@/lib/api';
+import { d1Api, setAuthToken } from '@/lib/api';
 
 const Login: FC = () => {
   const [email, setEmail] = useState('');
@@ -27,35 +26,76 @@ const Login: FC = () => {
   const [isVerifying2FA, setIsVerifying2FA] = useState(false);
   const [isResending, setIsResending] = useState(false);
 
-  const { signIn, complete2FA } = useAuth();
+  const { signIn, complete2FA, refreshSession } = useAuth();
   const { toast } = useToast();
   const navigate = useNavigate();
+  const location = useLocation();
 
-  const handleGoogleSignIn = async () => {
-    setIsGoogleLoading(true);
-    try {
-      const { error } = await supabase.auth.signInWithOAuth({
-        provider: 'google',
-        options: {
-          redirectTo: window.location.origin,
-        },
-      });
-      if (error) {
-        toast({
-          variant: 'destructive',
-          title: 'Google Sign-In failed',
-          description: error.message,
-        });
-        setIsGoogleLoading(false);
-      }
-    } catch (err: unknown) {
+  const fromState = (location.state as { from?: { pathname?: string } } | null)?.from?.pathname;
+  const safeRedirectTarget =
+    typeof fromState === 'string' && fromState.startsWith('/') && !fromState.startsWith('//')
+      ? fromState
+      : '/dashboard';
+
+  useEffect(() => {
+    const hash = window.location.hash;
+    if (!hash || (!hash.includes('oauth_token=') && !hash.includes('oauth_error='))) {
+      return;
+    }
+    const params = new URLSearchParams(hash.slice(1));
+    const oauthError = params.get('oauth_error');
+    const oauthToken = params.get('oauth_token');
+    const redirectParam = params.get('redirect');
+    window.history.replaceState(null, '', window.location.pathname + window.location.search);
+
+    if (oauthError) {
       toast({
         variant: 'destructive',
         title: 'Google Sign-In failed',
-        description: err instanceof Error ? err.message : 'Unable to start Google Sign-In.',
+        description: oauthError,
       });
       setIsGoogleLoading(false);
+      return;
     }
+
+    if (oauthToken) {
+      setIsGoogleLoading(true);
+      setAuthToken(oauthToken);
+      refreshSession()
+        .then((u) => {
+          if (u) {
+            toast({
+              title: 'Signed in with Google',
+              description: `Welcome, ${u.display_name || u.email}.`,
+            });
+            const dest =
+              redirectParam && redirectParam.startsWith('/') && !redirectParam.startsWith('//')
+                ? redirectParam
+                : '/dashboard';
+            navigate(dest, { replace: true });
+          } else {
+            toast({
+              variant: 'destructive',
+              title: 'Google Sign-In failed',
+              description: 'Could not verify the returned session token.',
+            });
+            setIsGoogleLoading(false);
+          }
+        })
+        .catch(() => {
+          toast({
+            variant: 'destructive',
+            title: 'Google Sign-In failed',
+            description: 'Unable to load account profile.',
+          });
+          setIsGoogleLoading(false);
+        });
+    }
+  }, [navigate, refreshSession, toast]);
+
+  const handleGoogleSignIn = () => {
+    setIsGoogleLoading(true);
+    window.location.assign(`/api/auth/google?redirect=${encodeURIComponent(safeRedirectTarget)}`);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {

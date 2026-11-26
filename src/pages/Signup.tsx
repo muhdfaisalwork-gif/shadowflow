@@ -8,7 +8,6 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader } from '@/components/ui/card';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
-import { supabase } from '@/integrations/supabase/client';
 import { Separator } from '@/components/ui/separator';
 
 const Signup: FC = () => {
@@ -22,31 +21,9 @@ const Signup: FC = () => {
   const { toast } = useToast();
   const navigate = useNavigate();
 
-  const handleGoogleSignUp = async () => {
+  const handleGoogleSignUp = () => {
     setIsGoogleLoading(true);
-    try {
-      const { error } = await supabase.auth.signInWithOAuth({
-        provider: 'google',
-        options: {
-          redirectTo: window.location.origin,
-        },
-      });
-      if (error) {
-        toast({
-          variant: 'destructive',
-          title: 'Google Sign-Up failed',
-          description: error.message,
-        });
-        setIsGoogleLoading(false);
-      }
-    } catch (err: unknown) {
-      toast({
-        variant: 'destructive',
-        title: 'Google Sign-Up failed',
-        description: err instanceof Error ? err.message : 'Unable to start Google Sign-Up.',
-      });
-      setIsGoogleLoading(false);
-    }
+    window.location.assign('/api/auth/google?redirect=%2Fdashboard');
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
