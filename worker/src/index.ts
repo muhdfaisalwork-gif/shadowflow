@@ -2974,13 +2974,14 @@ export default {
         .bind(paymentId, provider, eventId, userId, plan, amountCents, currency, status, '{}', nowIso)
         .run();
 
-      if (userId && status === 'succeeded') {
+      if (userId && (status === 'succeeded' || status === 'subscription.canceled')) {
+        const nextPlan = status === 'subscription.canceled' ? 'free' : plan;
         await env.DB.prepare(
           `INSERT INTO user_subscriptions (user_id, plan, created_at, updated_at)
            VALUES (?, ?, ?, ?)
            ON CONFLICT(user_id) DO UPDATE SET plan = excluded.plan, updated_at = excluded.updated_at`
         )
-          .bind(userId, plan, nowIso, nowIso)
+          .bind(userId, nextPlan, nowIso, nowIso)
           .run();
       }
 

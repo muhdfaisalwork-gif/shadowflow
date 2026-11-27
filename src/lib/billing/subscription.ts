@@ -113,7 +113,7 @@ export interface UserSubscriptionState {
   tier: PlanTier;
   interval: BillingInterval;
   status: 'active' | 'trialing' | 'canceled';
-  provider: 'lemonsqueezy' | 'polar' | 'license_key' | 'free';
+  provider: 'paddle' | 'lemonsqueezy' | 'polar' | 'license_key' | 'free';
   licenseKey?: string;
   activatedAt: string;
   renewsAt?: string;
@@ -323,8 +323,8 @@ export const PADDLE_PRICE_IDS: Record<'pro' | 'enterprise', Record<BillingInterv
     annual: 'pri_01m8dt7zp8pn85b9pff3hdc3ee',
   },
   enterprise: {
-    monthly: 'pri_01m8dt7zzewew498jn9xvcnrhd',
-    annual: 'pri_01m8dt8088gfm0d9q4wzwkaa11',
+    monthly: 'pri_01m8dvcj1dwm7w13gx7tfddfr6',
+    annual: 'pri_01m8dvcjapftt6ppm9gk759vvt',
   },
 };
 

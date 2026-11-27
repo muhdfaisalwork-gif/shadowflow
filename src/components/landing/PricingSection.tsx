@@ -270,7 +270,7 @@ export function PricingSection({ isStandalonePage = false }: { isStandalonePage?
               <ShieldCheck className="w-5 h-5" />
             </div>
             <div>
-              <p className="text-sm font-semibold">Already purchased a Lemon Squeezy or Polar.sh License Key?</p>
+              <p className="text-sm font-semibold">Already have a ShadowFlow License Key?</p>
               <p className="text-xs text-muted-foreground">
                 Activate your Pro or Team subscription immediately with your license key—no server setup required.
               </p>
@@ -292,7 +292,7 @@ export function PricingSection({ isStandalonePage = false }: { isStandalonePage?
               Upgrade to {checkoutModalTier ? SAAS_PLANS[checkoutModalTier].name : 'Shadow Flow Pro'}
             </DialogTitle>
             <DialogDescription>
-              Activate via Lemon Squeezy / Polar.sh license key or test the live subscription checkout flow.
+              Activate with a license key or complete checkout via Paddle.
             </DialogDescription>
           </DialogHeader>
 
@@ -301,7 +301,7 @@ export function PricingSection({ isStandalonePage = false }: { isStandalonePage?
             <div className="space-y-2 rounded-lg border border-border p-4 bg-muted/20">
               <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
                 <KeyRound className="w-3.5 h-3.5 text-primary" />
-                1. Enter Lemon Squeezy / Polar.sh License Key
+                1. Enter ShadowFlow License Key
               </label>
               <div className="flex gap-2">
                 <Input

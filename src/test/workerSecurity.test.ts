@@ -2929,34 +2929,42 @@ describe("Worker Backend Security & Contract Suite", () => {
     expect(overrideBody.success).toBe(true);
     expect(overrideBody.status).toBe("success");
 
-    // 5. HTTP node retry policy test
-    const retryDagRes = await worker.fetch(
-      new Request("https://shadowflow.work/api/execute", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          nodes: [
-            {
-              id: "http_retry_step",
-              type: "http-request",
-              config: {
-                url: "https://unreachable.nonexistent-domain-404-500.com/test",
-                retry: { maxAttempts: 2, backoffMs: 50 },
+    // 5. HTTP node retry policy test (deterministic mocked network failure)
+    const origRetryFetch = globalThis.fetch;
+    globalThis.fetch = (async () => {
+      throw new TypeError("fetch failed");
+    }) as typeof fetch;
+    try {
+      const retryDagRes = await worker.fetch(
+        new Request("https://shadowflow.work/api/execute", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            nodes: [
+              {
+                id: "http_retry_step",
+                type: "http-request",
+                config: {
+                  url: "https://unreachable.nonexistent-domain-404-500.com/test",
+                  retry: { maxAttempts: 2, backoffMs: 50 },
+                },
               },
-            },
-          ],
-          edges: [],
-          input: {},
+            ],
+            edges: [],
+            input: {},
+          }),
         }),
-      }),
-      env
-    );
-    expect(retryDagRes.status).toBe(200);
-    const retryBody = (await retryDagRes.json()) as {
-      output: { ok: boolean; attempts: number; error: string };
-    };
-    expect(retryBody.output.ok).toBe(false);
-    expect(retryBody.output.attempts).toBe(2);
+        env
+      );
+      expect(retryDagRes.status).toBe(200);
+      const retryBody = (await retryDagRes.json()) as {
+        output: { ok: boolean; attempts: number; error: string };
+      };
+      expect(retryBody.output.ok).toBe(false);
+      expect(retryBody.output.attempts).toBe(2);
+    } finally {
+      globalThis.fetch = origRetryFetch;
+    }
 
     // 6. Manifest inspection
     const manifestRes = await worker.fetch(new Request("https://shadowflow.work/api/backend/tools"), env);
@@ -3850,5 +3858,29 @@ describe("Worker Backend Security & Contract Suite", () => {
     expect(mock.payments[0].provider).toBe("paddle");
     expect(mock.payments[0].amount_cents).toBe(1900);
     expect(mock.userSubscriptions.get("user_paddle_1")).toBe("pro");
+
+    // Signed subscription.canceled -> 201 and downgrades user_subscriptions back to free
+    const cancelPayload = JSON.stringify({
+      event_id: "evt_paddle_1002",
+      event_type: "subscription.canceled",
+      data: {
+        currency_code: "USD",
+        custom_data: { userId: "user_paddle_1", tier: "pro" },
+      },
+    });
+    const cancelH1 = await signWebhookHmac(paddleSecret, `${ts}:${cancelPayload}`);
+    const cancelRes = await worker.fetch(
+      new Request("https://shadowflow.work/webhook/payments", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Paddle-Signature": `ts=${ts};h1=${cancelH1}`,
+        },
+        body: cancelPayload,
+      }),
+      env
+    );
+    expect(cancelRes.status).toBe(201);
+    expect(mock.userSubscriptions.get("user_paddle_1")).toBe("free");
   });
 });
