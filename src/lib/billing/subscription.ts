@@ -331,7 +331,7 @@ export const PADDLE_PRICE_IDS: Record<'pro' | 'enterprise', Record<BillingInterv
 declare global {
   interface Window {
     Paddle?: {
-      Initialize: (opts: { token: string }) => void;
+      Initialize: (opts: { token: string; pwCustomer?: { id: string } }) => void;
       Checkout: {
         open: (opts: {
           items: Array<{ priceId: string; quantity: number }>;
@@ -371,6 +371,7 @@ export async function openPaddleCheckout(params: {
   interval: BillingInterval;
   userEmail?: string;
   userId?: string;
+  paddleCustomerId?: string;
 }): Promise<void> {
   const env = (import.meta as unknown as { env?: Record<string, string> }).env || {};
   const clientToken = env.VITE_PADDLE_CLIENT_TOKEN || 'live_0b5b8fa03ac914179b3291dbd61';
@@ -380,8 +381,13 @@ export async function openPaddleCheckout(params: {
   if (!window.Paddle) {
     throw new Error('Paddle checkout unavailable');
   }
+  const hasPaddleCustomerId =
+    typeof params.paddleCustomerId === 'string' && params.paddleCustomerId.startsWith('ctm_');
   if (!paddleInitialized) {
-    window.Paddle.Initialize({ token: clientToken });
+    window.Paddle.Initialize({
+      token: clientToken,
+      ...(hasPaddleCustomerId ? { pwCustomer: { id: params.paddleCustomerId! } } : {}),
+    });
     paddleInitialized = true;
   }
 

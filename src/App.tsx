@@ -41,6 +41,7 @@ const Contact = lazy(() => import("./pages/Contact"));
 const Partners = lazy(() => import("./pages/Partners"));
 const Privacy = lazy(() => import("./pages/Privacy"));
 const Terms = lazy(() => import("./pages/Terms"));
+const RefundPolicy = lazy(() => import("./pages/RefundPolicy"));
 const CookiePolicy = lazy(() => import("./pages/CookiePolicy"));
 const License = lazy(() => import("./pages/License"));
 const CompareZapierN8n = lazy(() => import("./pages/CompareZapierN8n"));
@@ -195,6 +196,8 @@ const App = () => (
                 <Route path="/partners" element={<Partners />} />
                 <Route path="/privacy" element={<Privacy />} />
                 <Route path="/terms" element={<Terms />} />
+                <Route path="/refund-policy" element={<RefundPolicy />} />
+                <Route path="/refund" element={<RefundPolicy />} />
                 <Route path="/cookies" element={<CookiePolicy />} />
                 <Route path="/license" element={<License />} />
                 {/* Programmatic Comparison & Use-Case Hubs */}

@@ -3882,5 +3882,60 @@ describe("Worker Backend Security & Contract Suite", () => {
     );
     expect(cancelRes.status).toBe(201);
     expect(mock.userSubscriptions.get("user_paddle_1")).toBe("free");
+
+    // Dynamic Paddle IP allowlist rejects non-Paddle IPs with 403 and accepts fetched Paddle IPs
+    const origIpFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const u = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      if (u === "https://api.paddle.com/ips") {
+        return new Response(
+          JSON.stringify({ data: { ipv4_cidrs: ["34.237.3.244/32"] } }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      }
+      return new Response("Not Found", { status: 404 });
+    }) as typeof fetch;
+    try {
+      const ipBlockedRes = await worker.fetch(
+        new Request("https://shadowflow.work/webhook/payments", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "cf-connecting-ip": "203.0.113.10",
+            "Paddle-Signature": `ts=${ts};h1=${h1}`,
+          },
+          body: paddlePayload,
+        }),
+        env
+      );
+      expect(ipBlockedRes.status).toBe(403);
+
+      const allowedEvent = JSON.stringify({
+        event_id: "evt_paddle_1003",
+        event_type: "transaction.completed",
+        data: {
+          currency_code: "USD",
+          custom_data: { userId: "user_paddle_2", tier: "pro" },
+          details: { totals: { total: "1900" } },
+        },
+      });
+      const allowedH1 = await signWebhookHmac(paddleSecret, `${ts}:${allowedEvent}`);
+      const ipAllowedRes = await worker.fetch(
+        new Request("https://shadowflow.work/webhook/payments", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "cf-connecting-ip": "34.237.3.244",
+            "Paddle-Signature": `ts=${ts};h1=${allowedH1}`,
+          },
+          body: allowedEvent,
+        }),
+        env
+      );
+      expect(ipAllowedRes.status).toBe(201);
+      expect(mock.userSubscriptions.get("user_paddle_2")).toBe("pro");
+    } finally {
+      globalThis.fetch = origIpFetch;
+    }
   });
 });

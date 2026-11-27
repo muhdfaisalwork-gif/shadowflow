@@ -62,6 +62,36 @@ const ALLOWED_ORIGINS = [
   'http://localhost:4180',
 ];
 
+let cachedPaddleIps: { ips: Set<string>; expiresAt: number } | null = null;
+
+async function getPaddleAllowedIps(useCache: boolean): Promise<Set<string> | null> {
+  const now = Date.now();
+  if (useCache && cachedPaddleIps && cachedPaddleIps.expiresAt > now) {
+    return cachedPaddleIps.ips;
+  }
+  try {
+    const res = await fetch('https://api.paddle.com/ips', {
+      headers: { Accept: 'application/json' },
+    });
+    if (!res.ok) return null;
+    const body = (await res.json()) as { data?: { ipv4_cidrs?: unknown } };
+    const cidrs = Array.isArray(body?.data?.ipv4_cidrs) ? body.data.ipv4_cidrs : [];
+    const ips = new Set<string>();
+    for (const entry of cidrs) {
+      if (typeof entry !== 'string') continue;
+      const ip = entry.trim().split('/')[0];
+      if (ip) ips.add(ip);
+    }
+    if (ips.size === 0) return null;
+    if (useCache) {
+      cachedPaddleIps = { ips, expiresAt: now + 3600_000 };
+    }
+    return ips;
+  } catch {
+    return null;
+  }
+}
+
 function getCorsHeaders(request: Request): HeadersInit {
   const origin = request.headers.get('Origin') || '';
   const isAllowed =
@@ -2843,6 +2873,20 @@ export default {
           503,
           request
         );
+      }
+
+      if (
+        (env.PAYMENTS_PROVIDER || '').toLowerCase() === 'paddle' &&
+        (env.ENVIRONMENT !== 'test' || request.headers.has('cf-connecting-ip'))
+      ) {
+        const clientIp = (request.headers.get('cf-connecting-ip') || '').trim();
+        const allowedIps = await getPaddleAllowedIps(env.ENVIRONMENT !== 'test');
+        if (!allowedIps) {
+          return jsonResponse({ error: 'Unable to verify Paddle webhook source IPs' }, 503, request);
+        }
+        if (!clientIp || !allowedIps.has(clientIp)) {
+          return jsonResponse({ error: 'Webhook source IP not allowed' }, 403, request);
+        }
       }
 
       const { text: rawBody, tooLarge } = await readBoundedText(request, 64 * 1024);

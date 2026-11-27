@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { Link } from "react-router-dom";
 import { Header } from "@/components/landing/Header";
 import { Footer } from "@/components/landing/Footer";
 import { FileText } from "lucide-react";
@@ -53,9 +54,16 @@ export default function Terms() {
             </section>
 
             <section className="space-y-3">
-              <h2 className="text-lg font-bold text-foreground">4. Cloud Subscriptions & Billing</h2>
+              <h2 className="text-lg font-bold text-foreground">4. Cloud Subscriptions &amp; Billing</h2>
               <p>
-                Certain managed hosting tiers and team collaboration tools require a paid subscription. Billing is handled on a recurring monthly or annual basis. You may cancel at any time, and cancellation takes effect at the end of the current billing cycle.
+                Certain managed hosting tiers and team collaboration tools require a paid subscription. Our order
+                process is conducted by our online reseller Paddle.com, which acts as Merchant of Record for all orders.
+                Subscriptions renew on a monthly or annual basis, and you may cancel at any time so cancellation takes
+                effect at the end of the current billing cycle. See our{" "}
+                <Link to="/refund-policy" className="text-primary underline underline-offset-4">
+                  Refund &amp; Cancellation Policy
+                </Link>{" "}
+                for full details.
               </p>
             </section>
 
