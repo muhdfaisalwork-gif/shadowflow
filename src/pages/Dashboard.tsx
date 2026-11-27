@@ -165,6 +165,11 @@ const Dashboard: FC = () => {
             <span className="font-bold text-lg">Shadow Flow</span>
           </Link>
           <div className="flex items-center gap-4">
+            {!demo && user?.email?.toLowerCase() === 'muhd.faisal.work@gmail.com' && (
+              <Link to="/admin/progress">
+                <Button variant="outline" size="sm">Admin Progress</Button>
+              </Link>
+            )}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" size="sm" className="gap-2">

@@ -2850,21 +2850,46 @@ export default {
         return jsonResponse({ error: 'Payload Too Large: maximum webhook payload is 64KB' }, 413, request);
       }
 
-      const sigHeader = (request.headers.get('X-Payments-Signature') || '').trim().replace(/^sha256=/i, '').toLowerCase();
-      const rawTs = (request.headers.get('X-Payments-Timestamp') || '').trim();
-      if (!sigHeader || !rawTs) {
-        return jsonResponse({ error: 'Missing X-Payments-Signature or X-Payments-Timestamp header' }, 401, request);
+      const paddleSigHeader = request.headers.get('Paddle-Signature');
+      let sigVerified = false;
+      if (paddleSigHeader) {
+        const parts = Object.fromEntries(
+          paddleSigHeader.split(';').map((seg) => {
+            const idx = seg.indexOf('=');
+            return idx > 0 ? [seg.slice(0, idx).trim(), seg.slice(idx + 1).trim()] : ['', ''];
+          })
+        );
+        const ts = parts.ts || '';
+        const h1 = (parts.h1 || '').toLowerCase();
+        const tsSec = Number(ts);
+        const nowSec = Math.floor(Date.now() / 1000);
+        if (!ts || !h1 || !Number.isFinite(tsSec) || Math.abs(nowSec - tsSec) > 300) {
+          return jsonResponse({ error: 'Expired or invalid Paddle-Signature header' }, 401, request);
+        }
+        const expectedPaddleSig = await computeHmacSha256Hex(env.PAYMENTS_WEBHOOK_SECRET, `${ts}:${rawBody}`);
+        if (!timingSafeEqual(h1, expectedPaddleSig)) {
+          return jsonResponse({ error: 'Invalid Paddle-Signature' }, 401, request);
+        }
+        sigVerified = true;
       }
 
-      const tsSec = Number(rawTs);
-      const nowSec = Math.floor(Date.now() / 1000);
-      if (!Number.isFinite(tsSec) || Math.abs(nowSec - tsSec) > 300) {
-        return jsonResponse({ error: 'Expired or invalid payment webhook timestamp' }, 401, request);
-      }
+      if (!sigVerified) {
+        const sigHeader = (request.headers.get('X-Payments-Signature') || '').trim().replace(/^sha256=/i, '').toLowerCase();
+        const rawTs = (request.headers.get('X-Payments-Timestamp') || '').trim();
+        if (!sigHeader || !rawTs) {
+          return jsonResponse({ error: 'Missing payment webhook signature header' }, 401, request);
+        }
 
-      const expectedSig = await computeHmacSha256Hex(env.PAYMENTS_WEBHOOK_SECRET, `${rawTs}.${rawBody}`);
-      if (!timingSafeEqual(sigHeader, expectedSig)) {
-        return jsonResponse({ error: 'Invalid payment webhook signature' }, 401, request);
+        const tsSec = Number(rawTs);
+        const nowSec = Math.floor(Date.now() / 1000);
+        if (!Number.isFinite(tsSec) || Math.abs(nowSec - tsSec) > 300) {
+          return jsonResponse({ error: 'Expired or invalid payment webhook timestamp' }, 401, request);
+        }
+
+        const expectedSig = await computeHmacSha256Hex(env.PAYMENTS_WEBHOOK_SECRET, `${rawTs}.${rawBody}`);
+        if (!timingSafeEqual(sigHeader, expectedSig)) {
+          return jsonResponse({ error: 'Invalid payment webhook signature' }, 401, request);
+        }
       }
 
       let payload: Record<string, unknown>;
@@ -2878,7 +2903,22 @@ export default {
         return jsonResponse({ error: 'Invalid JSON payment webhook payload' }, 400, request);
       }
 
-      const eventId = typeof payload.eventId === 'string' ? payload.eventId.trim() : '';
+      const isPaddlePayload = typeof payload.event_id === 'string' && typeof payload.event_type === 'string';
+      const paddleData = isPaddlePayload && typeof payload.data === 'object' && payload.data !== null
+        ? (payload.data as Record<string, unknown>)
+        : null;
+      const paddleCustomData = paddleData && typeof paddleData.custom_data === 'object' && paddleData.custom_data !== null
+        ? (paddleData.custom_data as Record<string, unknown>)
+        : null;
+      const paddleTotals = paddleData && typeof paddleData.details === 'object' && paddleData.details !== null
+        ? ((paddleData.details as Record<string, unknown>).totals as Record<string, unknown> | undefined)
+        : undefined;
+
+      const eventId = isPaddlePayload
+        ? String(payload.event_id).trim()
+        : typeof payload.eventId === 'string'
+          ? payload.eventId.trim()
+          : '';
       if (!eventId) {
         return jsonResponse({ error: 'eventId is required' }, 400, request);
       }
@@ -2891,20 +2931,40 @@ export default {
       }
 
       const paymentId = randomId('pay');
-      const provider =
-        typeof payload.provider === 'string' && payload.provider.trim()
+      const provider = isPaddlePayload
+        ? 'paddle'
+        : typeof payload.provider === 'string' && payload.provider.trim()
           ? payload.provider.trim().slice(0, 64)
           : env.PAYMENTS_PROVIDER || 'custom';
-      const userId = typeof payload.userId === 'string' && payload.userId.trim() ? payload.userId.trim() : null;
-      const plan = typeof payload.plan === 'string' && payload.plan.trim() ? payload.plan.trim().slice(0, 32) : 'pro';
-      const amountCentsRaw = Number(payload.amountCents ?? 0);
+      const userId = isPaddlePayload
+        ? typeof paddleCustomData?.userId === 'string' && paddleCustomData.userId.trim()
+          ? paddleCustomData.userId.trim()
+          : null
+        : typeof payload.userId === 'string' && payload.userId.trim()
+          ? payload.userId.trim()
+          : null;
+      const rawTier = isPaddlePayload
+        ? String(paddleCustomData?.tier || 'pro').toLowerCase()
+        : typeof payload.plan === 'string' && payload.plan.trim()
+          ? payload.plan.trim().toLowerCase().slice(0, 32)
+          : 'pro';
+      const plan = rawTier === 'enterprise' || rawTier === 'max' ? 'max' : rawTier === 'free' ? 'free' : 'pro';
+      const amountCentsRaw = isPaddlePayload
+        ? Number(paddleTotals?.total ?? 0)
+        : Number(payload.amountCents ?? 0);
       const amountCents = Number.isFinite(amountCentsRaw) && amountCentsRaw >= 0 ? Math.round(amountCentsRaw) : 0;
-      const currency =
-        typeof payload.currency === 'string' && payload.currency.trim()
+      const currency = isPaddlePayload
+        ? String(paddleData?.currency_code || 'USD').toUpperCase().slice(0, 8)
+        : typeof payload.currency === 'string' && payload.currency.trim()
           ? payload.currency.trim().toUpperCase().slice(0, 8)
           : 'USD';
-      const status =
-        typeof payload.status === 'string' && payload.status.trim() ? payload.status.trim().slice(0, 32) : 'succeeded';
+      const status = isPaddlePayload
+        ? ['transaction.completed', 'subscription.activated', 'subscription.updated'].includes(String(payload.event_type))
+          ? 'succeeded'
+          : String(payload.event_type).slice(0, 32)
+        : typeof payload.status === 'string' && payload.status.trim()
+          ? payload.status.trim().slice(0, 32)
+          : 'succeeded';
       const nowIso = new Date().toISOString();
 
       await env.DB.prepare(
@@ -2913,6 +2973,16 @@ export default {
       )
         .bind(paymentId, provider, eventId, userId, plan, amountCents, currency, status, '{}', nowIso)
         .run();
+
+      if (userId && status === 'succeeded') {
+        await env.DB.prepare(
+          `INSERT INTO user_subscriptions (user_id, plan, created_at, updated_at)
+           VALUES (?, ?, ?, ?)
+           ON CONFLICT(user_id) DO UPDATE SET plan = excluded.plan, updated_at = excluded.updated_at`
+        )
+          .bind(userId, plan, nowIso, nowIso)
+          .run();
+      }
 
       return jsonResponse({ received: true, id: paymentId }, 201, request);
     }
@@ -6376,7 +6446,7 @@ Write the full article now in Markdown.`;
       headers.set('Cross-Origin-Opener-Policy', 'same-origin-allow-popups');
       headers.set(
         'Content-Security-Policy',
-        "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: https: blob:; media-src 'self' blob:; connect-src 'self' https://*.supabase.co https://shadowflow.work https://api.github.com http://127.0.0.1:11434 http://localhost:11434; frame-ancestors 'self'; base-uri 'self'; form-action 'self' https://accounts.google.com"
+        "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.paddle.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.paddle.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: https: blob:; media-src 'self' blob:; connect-src 'self' https://*.supabase.co https://shadowflow.work https://api.github.com https://checkout.paddle.com https://buy.paddle.com https://api.paddle.com http://127.0.0.1:11434 http://localhost:11434; frame-src 'self' https://checkout.paddle.com https://buy.paddle.com; frame-ancestors 'self'; base-uri 'self'; form-action 'self' https://accounts.google.com"
       );
       return new Response(html, {
         status: 200,

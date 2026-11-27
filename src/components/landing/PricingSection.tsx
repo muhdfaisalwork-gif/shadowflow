@@ -29,6 +29,7 @@ import {
   getStoredSubscription,
   activateLicenseKey,
   getCheckoutUrl,
+  openPaddleCheckout,
   saveSubscription,
   isDemoBillingEnabled,
 } from '@/lib/billing/subscription';
@@ -53,7 +54,7 @@ export function PricingSection({ isStandalonePage = false }: { isStandalonePage?
     return () => window.removeEventListener('flow2flow-subscription-updated', handler);
   }, []);
 
-  const handleSelectPlan = (tier: PlanTier) => {
+  const handleSelectPlan = async (tier: PlanTier) => {
     if (tier === 'free') {
       if (user) {
         navigate('/dashboard');
@@ -69,8 +70,16 @@ export function PricingSection({ isStandalonePage = false }: { isStandalonePage?
       return;
     }
 
-    // Open the interactive Checkout & License Activation modal
-    setCheckoutModalTier(tier);
+    try {
+      await openPaddleCheckout({
+        tier,
+        interval,
+        userEmail: user?.email,
+        userId: user?.id,
+      });
+    } catch {
+      setCheckoutModalTier(tier);
+    }
   };
 
   const handleActivateLicense = async () => {
@@ -133,7 +142,7 @@ export function PricingSection({ isStandalonePage = false }: { isStandalonePage?
           )}
           <p className="text-lg text-muted-foreground mb-8">
             Import any n8n workflow, generate AI pipelines, and execute graphs in the cloud.
-            Powered by Lemon Squeezy &amp; Polar.sh global checkout.
+            Powered by Paddle global checkout.
           </p>
 
           {/* Billing Interval Toggle */}

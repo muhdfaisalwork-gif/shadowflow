@@ -3796,4 +3796,59 @@ describe("Worker Backend Security & Contract Suite", () => {
     }
     expect(lastStatus).toBe(429);
   });
+
+  it("verifies Paddle-Signature webhook events and upgrades user_subscriptions on transaction.completed", async () => {
+    const mock = createMockDb();
+    const paddleSecret = "pdl_ntfset_test_secret_at_least_32_chars";
+    const env: Env = {
+      ...createEnv(mock.db),
+      ADMIN_EMAILS: "owner@shadowflow.work",
+      PAYMENTS_WEBHOOK_SECRET: paddleSecret,
+      PAYMENTS_PROVIDER: "paddle",
+    };
+
+    const paddlePayload = JSON.stringify({
+      event_id: "evt_paddle_1001",
+      event_type: "transaction.completed",
+      data: {
+        currency_code: "USD",
+        custom_data: { userId: "user_paddle_1", tier: "pro" },
+        details: { totals: { total: "1900" } },
+      },
+    });
+    const ts = String(Math.floor(Date.now() / 1000));
+    const h1 = await signWebhookHmac(paddleSecret, `${ts}:${paddlePayload}`);
+
+    // Forged h1 -> 401
+    const badRes = await worker.fetch(
+      new Request("https://shadowflow.work/webhook/payments", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Paddle-Signature": `ts=${ts};h1=${"0".repeat(64)}`,
+        },
+        body: paddlePayload,
+      }),
+      env
+    );
+    expect(badRes.status).toBe(401);
+
+    // Valid Paddle-Signature -> 201 and upgrades user_subscriptions
+    const okRes = await worker.fetch(
+      new Request("https://shadowflow.work/webhook/payments", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Paddle-Signature": `ts=${ts};h1=${h1}`,
+        },
+        body: paddlePayload,
+      }),
+      env
+    );
+    expect(okRes.status).toBe(201);
+    expect(mock.payments.length).toBe(1);
+    expect(mock.payments[0].provider).toBe("paddle");
+    expect(mock.payments[0].amount_cents).toBe(1900);
+    expect(mock.userSubscriptions.get("user_paddle_1")).toBe("pro");
+  });
 });

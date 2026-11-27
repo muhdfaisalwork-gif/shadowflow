@@ -316,3 +316,84 @@ export function getCheckoutUrl(
     providerName,
   };
 }
+
+export const PADDLE_PRICE_IDS: Record<'pro' | 'enterprise', Record<BillingInterval, string>> = {
+  pro: {
+    monthly: 'pri_01m8dt7zc4jw9y7tfak2xmkdze',
+    annual: 'pri_01m8dt7zp8pn85b9pff3hdc3ee',
+  },
+  enterprise: {
+    monthly: 'pri_01m8dt7zzewew498jn9xvcnrhd',
+    annual: 'pri_01m8dt8088gfm0d9q4wzwkaa11',
+  },
+};
+
+declare global {
+  interface Window {
+    Paddle?: {
+      Initialize: (opts: { token: string }) => void;
+      Checkout: {
+        open: (opts: {
+          items: Array<{ priceId: string; quantity: number }>;
+          customer?: { email?: string };
+          customData?: Record<string, string>;
+          settings?: { successUrl?: string };
+        }) => void;
+      };
+    };
+  }
+}
+
+let paddleScriptPromise: Promise<void> | null = null;
+let paddleInitialized = false;
+
+function loadPaddleJs(): Promise<void> {
+  if (typeof window === 'undefined') return Promise.reject(new Error('No window'));
+  if (window.Paddle) return Promise.resolve();
+  if (paddleScriptPromise) return paddleScriptPromise;
+
+  paddleScriptPromise = new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = 'https://cdn.paddle.com/paddle/v2/paddle.js';
+    script.async = true;
+    script.onload = () => resolve();
+    script.onerror = () => {
+      paddleScriptPromise = null;
+      reject(new Error('Failed to load Paddle checkout script'));
+    };
+    document.head.appendChild(script);
+  });
+  return paddleScriptPromise;
+}
+
+export async function openPaddleCheckout(params: {
+  tier: 'pro' | 'enterprise';
+  interval: BillingInterval;
+  userEmail?: string;
+  userId?: string;
+}): Promise<void> {
+  const env = (import.meta as unknown as { env?: Record<string, string> }).env || {};
+  const clientToken = env.VITE_PADDLE_CLIENT_TOKEN || 'live_0b5b8fa03ac914179b3291dbd61';
+  const priceId = PADDLE_PRICE_IDS[params.tier][params.interval];
+
+  await loadPaddleJs();
+  if (!window.Paddle) {
+    throw new Error('Paddle checkout unavailable');
+  }
+  if (!paddleInitialized) {
+    window.Paddle.Initialize({ token: clientToken });
+    paddleInitialized = true;
+  }
+
+  window.Paddle.Checkout.open({
+    items: [{ priceId, quantity: 1 }],
+    ...(params.userEmail ? { customer: { email: params.userEmail } } : {}),
+    customData: {
+      tier: params.tier,
+      ...(params.userId ? { userId: params.userId } : {}),
+    },
+    settings: {
+      successUrl: `${window.location.origin}/dashboard?upgraded=${params.tier}`,
+    },
+  });
+}
